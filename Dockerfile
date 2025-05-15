@@ -1,21 +1,27 @@
+# syntax=docker/dockerfile:1.4
+
 FROM gcc:11 AS build
 SHELL ["/bin/bash", "-c"]
+WORKDIR /root/
 
 ARG branch=develop
-ARG owner=XRPLF
+ARG repo_owner=XRPLF
 ARG repo_name=rippled
-ARG repo=${owner}/${repo_name}
+ARG repo=${repo_owner}/${repo_name}
+
 ARG compiler=gcc
 ARG build_type=Release
 ARG conan_remote="ripple-stage http://18.143.149.228:8081/artifactory/api/conan/stage"
 
 ARG conan_version=2.16.1
 ARG cmake_version=4.0.0
-
-ENV CONAN_HOME="/root/conan2"
-# Maybe prefer uv?
-# ENV UV_TOOL_BIN_DIR=/usr/local/bin
-# COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+ENV DOCKER_BUILDKIT=1
+RUN --mount=type=bind,source=/branches,target=/mnt/branches/ cp -r /mnt/branches /root/branches
+COPY ${repo}/${branch} /root/${repo_name}
+# # Maybe prefer uv?
+ENV UV_TOOL_BIN_DIR=/usr/local/bin
+ENV CONAN_HOME=/root/conan2/
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 RUN <<EOF
     pkgs=(python3-pip python-is-python3) # pip and python for Conan and CMake
@@ -31,9 +37,10 @@ RUN <<EOF
     pip_packages+=("cmake==${cmake_version}")
     pip_packages+=("conan==${conan_version}")
     pip install --no-cache-dir "${pip_packages[@]}"
+    conan version
 EOF
 
-COPY <<EOF /root/conan2/profiles/default
+COPY <<EOF "${CONAN_HOME}/profiles/default"
 
     [settings]
         os={{ detect_api.detect_os() }}
@@ -59,21 +66,12 @@ COPY <<EOF /root/conan2/profiles/default
         &:rocksdb=False
     {% endif %}
 
-    [conf]
-        tools.build:jobs=22
-
     [tool_requires]
         !cmake/*: cmake/[>=3 <4]
 EOF
 
-COPY smart_escrow/wamr wamr
-
 RUN <<EOF
     set -ex
-#     repo="${repo:-XRPLF/rippled}"
-# #     branch=${branch:-develop}
-#     branch=${branch:-conan2}
-    # source_dir=${source_dir:-rippled}
     build_dir=${build_dir:-build}
     config=${build_config:-Release}
 
@@ -83,8 +81,6 @@ RUN <<EOF
         num_proc=1
     fi
 
-    git clone --branch "${branch}" --depth 1 "https://github.com/${repo}.git"
-
     ### Conan config stuff
     echo "core.download:parallel = $(nproc)" >> $CONAN_HOME/global.conf
     echo "tools.build:jobs = $(nproc)" >>  $CONAN_HOME/global.conf
@@ -93,32 +89,29 @@ RUN <<EOF
 
     ### Branch specific configs
     if [[ "${branch}" =~ ^(master|release)$ ]]; then
-        config=Release # get the commit id in the version string
+        echo "buildin master/release"
 
     elif [[ "${branch}" = "feature-batch" ]]; then
-        cd ${repo_name} && sed -i s#protobuf/3.21.9#protobuf/3.21.12# conanfile.py && cd -
+        sed -i s#${repo_name}/protobuf/3.21.9#${repo_name}/protobuf/3.21.12# conanfile.py && cd -
 
     elif [[ "${branch}" = "ripple/smart-escrow" ]]; then
-        wamr_recipe="${repo_name}/external/wamr"
+        wamr_recipe=$(realpath "${repo_name}/external/wamr")
         rm -rf "${wamr_recipe}"
-        mv wamr "${wamr_recipe}"
+        mv  ./branches/${repo}/${branch}/wamr ${wamr_recipe}
         conan export --version 2.2.0 "${wamr_recipe}"
     fi
 
     conan build "${repo_name}" -of "${build_dir}" --build missing
-
-    strip /build/build/Release/rippled
+    rippled=$(find -name rippled -type f)
+    strip "${rippled}"
 EOF
 
-
-
-
 FROM debian:bullseye-slim AS rippled
-
+ARG build_type
 RUN  apt-get update && apt-get install -y tree vim ca-certificates jq curl && rm -rf /var/lib/apt/lists/*
-COPY --from=build /build/build/Release/rippled /opt/ripple/bin/rippled
+COPY --from=build /build/build/${build_type}/rippled /opt/ripple/bin/rippled
 COPY --from=build /rippled/cfg/rippled-example.cfg /opt/ripple/etc/rippled.cfg
-COPY --from=build /rippled/cfg/validators-example.txt /opt/ripple/etc/validtors.txt
+COPY --from=build /rippled/cfg/validators-example.txt /opt/ripple/etc/validators.txt
 
 RUN ln -s /opt/ripple/bin/rippled /usr/local/bin/rippled
 RUN mkdir -p /etc/opt && ln -s /opt/ripple/etc/ /etc/opt/ripple

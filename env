@@ -1,0 +1,16 @@
+## Smart escrow
+# REPO_OWNER="XRPLF"
+# BRANCH="ripple/smart-escrow"
+
+## Batch Transactions
+# REPO_OWNER="Transia-RnD"
+# BRANCH="feature-batch"
+
+## Account Permission
+# REPO_OWNER="yinyiqian1"
+# BRANCH="account_permission_new"
+
+REGISTRY="legleux"
+REPO_NAME="rippled"
+IMAGE="${REGISTRY}/${REPO_NAME}"
+BUILD_TYPE="Release"
