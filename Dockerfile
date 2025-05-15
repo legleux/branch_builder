@@ -107,15 +107,17 @@ RUN <<EOF
 EOF
 
 FROM debian:bullseye-slim AS rippled
-ARG build_type
-RUN  apt-get update && apt-get install -y tree vim ca-certificates jq curl && rm -rf /var/lib/apt/lists/*
-COPY --from=build /build/build/${build_type}/rippled /opt/ripple/bin/rippled
-COPY --from=build /rippled/cfg/rippled-example.cfg /opt/ripple/etc/rippled.cfg
-COPY --from=build /rippled/cfg/validators-example.txt /opt/ripple/etc/validators.txt
+ARG build_type=Release
+WORKDIR /root
+# RUN  apt-get update && apt-get install -y tree vim ca-certificates jq curl && rm -rf /var/lib/apt/lists/*
+# RUN  apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/* && apt-get clean
+COPY --from=build /root/build/build/Release/rippled /opt/ripple/bin/rippled
+COPY --from=build /root/rippled/cfg/rippled-example.cfg /opt/ripple/etc/rippled.cfg
+COPY --from=build /root/rippled/cfg/validators-example.txt /opt/ripple/etc/validators.txt
 
 RUN ln -s /opt/ripple/bin/rippled /usr/local/bin/rippled
 RUN mkdir -p /etc/opt && ln -s /opt/ripple/etc/ /etc/opt/ripple
 
-RUN if [ $(uname -m) = "aarch64" ];then apt-get update && apt-get install --yes libatomic1 && apt-get clean && rm -rf /var/cache/apt/lists; fi
+RUN if [ $(uname -m) = "aarch64" ];then apt-get update && apt-get install --yes libatomic1 && rm -rf /var/lib/apt/lists/* && apt-get clean; fi
 
 ENTRYPOINT ["/opt/ripple/bin/rippled"]
