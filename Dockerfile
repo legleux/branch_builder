@@ -110,7 +110,7 @@ FROM debian:bullseye-slim AS rippled
 ARG build_type=Release
 WORKDIR /root
 # RUN  apt-get update && apt-get install -y tree vim ca-certificates jq curl && rm -rf /var/lib/apt/lists/*
-# RUN  apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/* && apt-get clean
+RUN  apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/* && apt-get clean
 COPY --from=build /root/build/build/Release/rippled /opt/ripple/bin/rippled
 COPY --from=build /root/rippled/cfg/rippled-example.cfg /opt/ripple/etc/rippled.cfg
 COPY --from=build /root/rippled/cfg/validators-example.txt /opt/ripple/etc/validators.txt
