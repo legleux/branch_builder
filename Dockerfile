@@ -11,13 +11,13 @@ ARG repo=${repo_owner}/${repo_name}
 
 ARG compiler=gcc
 ARG build_type=Release
-ARG conan_remote="ripple-stage http://18.143.149.228:8081/artifactory/api/conan/stage"
-
-ARG conan_version=2.16.1
+ARG conan_remote="ripple http://18.143.149.228:8081/artifactory/api/conan/dev"
+ARG TESTS=False
+ARG conan_version=2.17.0
 ARG cmake_version=4.0.0
 ENV DOCKER_BUILDKIT=1
 RUN --mount=type=bind,source=/branches,target=/mnt/branches/ cp -r /mnt/branches /root/branches
-COPY ${repo}/${branch} /root/${repo_name}
+COPY ${repo} /root/${repo_name}
 # # Maybe prefer uv?
 ENV UV_TOOL_BIN_DIR=/usr/local/bin
 ENV CONAN_HOME=/root/conan2/
@@ -62,8 +62,9 @@ COPY <<EOF "${CONAN_HOME}/profiles/default"
         xrpl/*:rocksdb=False
         &:tests=False
     {% else %}
-        &:xrpld=True
-        &:rocksdb=False
+        xrpld=True
+        tests=${TESTS}
+        rocksdb=False
     {% endif %}
 
     [tool_requires]
