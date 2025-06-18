@@ -72,3 +72,5 @@ fi
 
 cd "$WORKTREE_DIR"
 echo "✅ Checked out $COMMIT_SHA at $WORKTREE_DIR"
+## Where to print out
+# git show -s --format="%H - %cd - %s - %an")
