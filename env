@@ -9,7 +9,8 @@
 ## Account Permission
 # REPO_OWNER="yinyiqian1"
 # BRANCH="account_permission_new"
-
+CONAN_REMOTE="conan.ripplex.io"
+BUILD_IMAGE="ghcr.io/xrplf/ci/ubuntu-jammy:gcc-12"
 REGISTRY="legleux"
 REPO_NAME="rippled"
 IMAGE="${REGISTRY}/${REPO_NAME}"

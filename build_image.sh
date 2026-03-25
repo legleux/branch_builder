@@ -39,10 +39,6 @@ if git rev-parse --verify "$build_branch" &>/dev/null; then
     echo "Using Dockerfile from branch: ${build_branch}"
     git show "${build_branch}:Dockerfile" > /tmp/Dockerfile.build
     DOCKERFILE="/tmp/Dockerfile.build"
-elif [ -z "${GIT_HASH:-}" ]; then
-    echo "Creating build branch: ${build_branch} (from main)"
-    git branch "$build_branch" main
-    echo "Using Dockerfile from main"
 fi
 
 if [ -n "${CI:-}" ]; then
@@ -69,7 +65,8 @@ else
     labels+=("commit_id=${git_hash}")
     labels+=("repo_url=https://github.com/${repo}.git")
 fi
-
+build_args+=("BUILD_IMAGE=${BUILD_IMAGE}")
+build_args+=("CONAN_REMOTE=${CONAN_REMOTE}")
 build_args+=("repo=${repo}")
 build_args+=("git_hash=${git_hash}")
 build_args+=("source_path=${source_path}")

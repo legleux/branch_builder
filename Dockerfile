@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.4
-
-FROM gcc:11 AS build
+ARG BUILD_IMAGE
+FROM ${BUILD_IMAGE} AS build
 SHELL ["/bin/bash", "-c"]
 WORKDIR /root/
 
@@ -12,10 +12,10 @@ ARG source_path=worktrees/${repo_owner}/${branch}
 
 ARG compiler=gcc
 ARG build_type=Release
-ARG conan_remote="ripple-stage http://18.143.149.228:8081/artifactory/api/conan/stage"
+ARG CONAN_REMOTE
 
-ARG conan_version=2.16.1
-ARG cmake_version=4.0.0
+ARG conan_version=2.26.2
+ARG cmake_version=4.3.0
 ENV DOCKER_BUILDKIT=1
 RUN --mount=type=bind,source=/branches,target=/mnt/branches/ cp -r /mnt/branches /root/branches
 COPY ${source_path} /root/${repo_name}
@@ -25,19 +25,29 @@ ENV CONAN_HOME=/root/conan2/
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 RUN <<EOF
-    pkgs=(python3-pip python-is-python3) # pip and python for Conan and CMake
-    pkgs+=(ca-certificates) # Warning in logs about SSL if not installed
-    ## dev stuff
-    pkgs+=(jq) # For pretty printing info from container
-    pkgs+=(vim) # For ... vim
+    # pkgs=(python3-pip python-is-python3) # pip and python for Conan and CMake
+    # pkgs+=(ca-certificates) # Warning in logs about SSL if not installed
+    # ## dev stuff
+    # pkgs+=(jq) # For pretty printing info from container
+    # pkgs+=(vim) # For ... vim
 
-    apt-get update && apt-get install --yes "${pkgs[@]}"
-    # uv tool install --python 3.13 conan
-    # uv tool install --python 3.13 "cmake<4"
-    pip_packages=()
-    pip_packages+=("cmake==${cmake_version}")
-    pip_packages+=("conan==${conan_version}")
-    pip install --no-cache-dir "${pip_packages[@]}"
+    # apt-get update && apt-get install --yes "${pkgs[@]}"
+    # # uv tool install --python 3.13 conan
+    # # uv tool install --python 3.13 "cmake<4"
+    # pip_packages=()
+    # pip_packages+=("cmake==${cmake_version}")
+    # pip_packages+=("conan==${conan_version}")
+    # pip install --no-cache-dir "${pip_packages[@]}"
+    if $UPGRADE_CONAN; then
+        read -r old new < <(pip list --outdated | grep conan | awk '{print $2, $3}')
+        echo "Upgrading Conan ${old} to ${new}"
+        pip install conan --upgrade
+    fi
+    if $UPGRADE_CMAKE; then
+        read -r old new < <(pip list --outdated | grep cmake | awk '{print $2, $3}')
+        echo "Upgrading CMake from ${old} to ${new}"
+        pip install cmake --upgrade
+    fi
     conan version
 EOF
 
@@ -67,8 +77,8 @@ COPY <<EOF "${CONAN_HOME}/profiles/default"
         &:rocksdb=False
     {% endif %}
 
-    [tool_requires]
-        !cmake/*: cmake/[>=3 <4]
+    # [tool_requires]
+    #     !cmake/*: cmake/[>=3 <4]
 EOF
 
 RUN <<EOF
@@ -83,10 +93,10 @@ RUN <<EOF
     fi
 
     ### Conan config stuff
-    echo "core.download:parallel = $(nproc)" >> $CONAN_HOME/global.conf
-    echo "tools.build:jobs = $(nproc)" >>  $CONAN_HOME/global.conf
+    echo "core.download:parallel=$(nproc)" >> $CONAN_HOME/global.conf
+    echo "tools.build:jobs=$(nproc)" >>  $CONAN_HOME/global.conf
 
-    conan remote add --index 0 ${conan_remote}
+    conan remote add --index 0 xrplf "https://${CONAN_REMOTE}"
 
     conan build "${repo_name}" -of "${build_dir}" --build missing
     rippled=$(find -name rippled -type f)
