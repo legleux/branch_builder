@@ -8,6 +8,7 @@ ARG branch=develop
 ARG repo_owner=XRPLF
 ARG repo_name=rippled
 ARG repo=${repo_owner}/${repo_name}
+ARG source_path=worktrees/${repo_owner}/${branch}
 
 ARG compiler=gcc
 ARG build_type=Release
@@ -17,7 +18,7 @@ ARG conan_version=2.16.1
 ARG cmake_version=4.0.0
 ENV DOCKER_BUILDKIT=1
 RUN --mount=type=bind,source=/branches,target=/mnt/branches/ cp -r /mnt/branches /root/branches
-COPY ${repo}/${branch} /root/${repo_name}
+COPY ${source_path} /root/${repo_name}
 # # Maybe prefer uv?
 ENV UV_TOOL_BIN_DIR=/usr/local/bin
 ENV CONAN_HOME=/root/conan2/
@@ -86,20 +87,6 @@ RUN <<EOF
     echo "tools.build:jobs = $(nproc)" >>  $CONAN_HOME/global.conf
 
     conan remote add --index 0 ${conan_remote}
-
-    ### Branch specific configs
-    if [[ "${branch}" =~ ^(master|release)$ ]]; then
-        echo "buildin master/release"
-
-    elif [[ "${branch}" = "feature-batch" ]]; then
-        sed -i s#${repo_name}/protobuf/3.21.9#${repo_name}/protobuf/3.21.12# conanfile.py && cd -
-
-    elif [[ "${branch}" = "ripple/smart-escrow" ]]; then
-        wamr_recipe=$(realpath "${repo_name}/external/wamr")
-        rm -rf "${wamr_recipe}"
-        mv  ./branches/${repo}/${branch}/wamr ${wamr_recipe}
-        conan export --version 2.2.0 "${wamr_recipe}"
-    fi
 
     conan build "${repo_name}" -of "${build_dir}" --build missing
     rippled=$(find -name rippled -type f)
