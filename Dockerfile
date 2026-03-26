@@ -4,40 +4,30 @@ FROM ${BUILD_IMAGE} AS build
 SHELL ["/bin/bash", "-c"]
 WORKDIR /root/
 
-ARG branch=develop
-ARG repo_owner=XRPLF
-ARG repo_name=rippled
-ARG repo=${repo_owner}/${repo_name}
-ARG source_path=worktrees/${repo_owner}/${branch}
-
-ARG compiler=gcc
-ARG build_type=Release
+ARG branch
+ARG git_hash
+ARG source_path
 ARG CONAN_REMOTE
+ARG NPROC
+ARG BUILD_TESTS=False
+COPY ${source_path} /root/src
+# Source is copied from a worktree without .git history. GitInfo.cmake runs
+# git rev-parse to embed branch/hash in the xrpld version string, so we
+# create a minimal .git with just enough plumbing to make rev-parse work.
+RUN <<EOF
+    cd /root/src && rm -f .git
+    mkdir -p .git/objects .git/refs/heads
+    echo "ref: refs/heads/${branch}" > .git/HEAD
+    echo "${git_hash}" > .git/refs/heads/${branch}
+EOF
 
-ARG conan_version=2.26.2
-ARG cmake_version=4.3.0
-ENV DOCKER_BUILDKIT=1
-RUN --mount=type=bind,source=/branches,target=/mnt/branches/ cp -r /mnt/branches /root/branches
-COPY ${source_path} /root/${repo_name}
-# # Maybe prefer uv?
 ENV UV_TOOL_BIN_DIR=/usr/local/bin
-ENV CONAN_HOME=/root/conan2/
+ENV CONAN_HOME=/root/.conan2
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 RUN <<EOF
-    # pkgs=(python3-pip python-is-python3) # pip and python for Conan and CMake
-    # pkgs+=(ca-certificates) # Warning in logs about SSL if not installed
-    # ## dev stuff
-    # pkgs+=(jq) # For pretty printing info from container
-    # pkgs+=(vim) # For ... vim
-
-    # apt-get update && apt-get install --yes "${pkgs[@]}"
-    # # uv tool install --python 3.13 conan
-    # # uv tool install --python 3.13 "cmake<4"
-    # pip_packages=()
-    # pip_packages+=("cmake==${cmake_version}")
-    # pip_packages+=("conan==${conan_version}")
-    # pip install --no-cache-dir "${pip_packages[@]}"
+    UPGRADE_CONAN=false
+    UPGRADE_CMAKE=true
     if $UPGRADE_CONAN; then
         read -r old new < <(pip list --outdated | grep conan | awk '{print $2, $3}')
         echo "Upgrading Conan ${old} to ${new}"
@@ -51,70 +41,58 @@ RUN <<EOF
     conan version
 EOF
 
-COPY <<EOF "${CONAN_HOME}/profiles/default"
-
-    [settings]
-        os={{ detect_api.detect_os() }}
-        arch={{ detect_api.detect_arch() }}
-    {% if not os.getenv("COMPILER")%}
-    {% set compiler, version, compiler_exe = detect_api.detect_default_compiler() %}
-        compiler={{ compiler }}
-        compiler.version={{ detect_api.default_compiler_version(compiler, version) }}
-        compiler.libcxx={{ detect_api.detect_libcxx(compiler, version, compiler_exe) }}
-        compiler.cppstd=20
-    {% endif %}
-
-        build_type=Release
-
-    [options]
-    {% if os.getenv("CLIO")  %}
-        xrpl/*:xrpld=False
-        xrpl/*:tests=False
-        xrpl/*:rocksdb=False
-        &:tests=False
-    {% else %}
-        &:xrpld=True
-        &:rocksdb=False
-    {% endif %}
-
-    # [tool_requires]
-    #     !cmake/*: cmake/[>=3 <4]
-EOF
-
-RUN <<EOF
-    set -ex
-    build_dir=${build_dir:-build}
-    config=${build_config:-Release}
-
-    num_proc=$(($(nproc) - 2))
-    if [ "$num_proc" -lt 3 ]; then
-        echo "Building with 1 processor."
-        num_proc=1
-    fi
-
-    ### Conan config stuff
-    echo "core.download:parallel=$(nproc)" >> $CONAN_HOME/global.conf
-    echo "tools.build:jobs=$(nproc)" >>  $CONAN_HOME/global.conf
-
+# Conan config
+RUN echo "core.download:parallel=$(nproc)" >> $CONAN_HOME/global.conf && \
+    echo "tools.build:jobs=${NPROC}" >> $CONAN_HOME/global.conf && \
     conan remote add --index 0 xrplf "https://${CONAN_REMOTE}"
 
-    conan build "${repo_name}" -of "${build_dir}" --build missing
-    rippled=$(find -name rippled -type f)
-    strip "${rippled}"
+# Conan install (dependency layer — cached unless conanfile/profile changes)
+RUN conan install src \
+    --build missing \
+    --settings:all build_type=Release \
+    --options:host "&:xrpld=True" \
+    --options:host "&:tests=${BUILD_TESTS}" \
+    --output-folder tc
+
+# CMake configure
+RUN cmake \
+    -B build \
+    -S src \
+    -Duse_mold=ON \
+    -Dtests=${BUILD_TESTS} \
+    -DCMAKE_VERBOSE_MAKEFILE=OFF \
+    -DCMAKE_TOOLCHAIN_FILE=/root/tc/build/generators/conan_toolchain.cmake
+
+# CMake build + strip
+RUN <<EOF
+    cmake \
+        --build build \
+        --parallel ${NPROC}
+    strip build/xrpld
 EOF
 
-FROM debian:bullseye-slim AS rippled
-ARG build_type=Release
+FROM ubuntu:jammy AS xrpld
 WORKDIR /root
-# RUN  apt-get update && apt-get install -y tree vim ca-certificates jq curl && rm -rf /var/lib/apt/lists/*
-# RUN  apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/* && apt-get clean
-COPY --from=build /root/build/build/Release/rippled /opt/ripple/bin/rippled
-COPY --from=build /root/rippled/cfg/rippled-example.cfg /opt/ripple/etc/rippled.cfg
-COPY --from=build /root/rippled/cfg/validators-example.txt /opt/ripple/etc/validators.txt
+# TODO: CMake --install works properly now so we don't need to do all this copying
+COPY --from=build /root/build/xrpld /opt/xrpld/bin/xrpld
+COPY --from=build /root/src/cfg/xrpld-example.cfg /opt/xrpld/etc/xrpld.cfg
+COPY --from=build /root/src/cfg/validators-example.txt /opt/xrpld/etc/validators.txt
 
-RUN ln -s /opt/ripple/bin/rippled /usr/local/bin/rippled
-RUN mkdir -p /etc/opt && ln -s /opt/ripple/etc/ /etc/opt/ripple
+RUN ln -s /opt/xrpld/bin/xrpld /usr/bin/xrpld
+RUN mkdir -p /etc/opt && ln -s /opt/xrpld/etc/ /etc/opt/xrpld
 
-RUN if [ $(uname -m) = "aarch64" ];then apt-get update && apt-get install --yes libatomic1 && rm -rf /var/lib/apt/lists/* && apt-get clean; fi
+RUN <<EOF
+if [ $(uname -m) = "aarch64" ];then
+    apt-get update && apt-get install --yes \
+        libatomic1
+    rm -rf /var/lib/apt/lists/* && apt-get clean
+fi
+EOF
 
-ENTRYPOINT ["/opt/ripple/bin/rippled"]
+ENTRYPOINT ["/opt/xrpld/bin/xrpld"]
+
+FROM busybox:glibc AS xrpld-slim
+COPY --from=build /root/build/xrpld /usr/bin/xrpld
+COPY --from=build /root/src/cfg/xrpld-example.cfg /etc/xrpld/xrpld.cfg
+COPY --from=build /root/src/cfg/validators-example.txt /etc/xrpld/validators.txt
+ENTRYPOINT ["/usr/bin/xrpld"]

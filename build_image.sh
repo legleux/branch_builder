@@ -16,6 +16,10 @@ if [ -n "${GIT_HASH:-}" ] && [ -n "${BRANCH:-}" ]; then
 fi
 branch=${BRANCH:-develop}
 git_hash="${GIT_HASH:-}"
+mem_limit="${MEM_LIMIT:-50}"
+nproc_val="${NPROC:-24}"
+dry_run="${DRY_RUN:-false}"
+push="${PUSH:-false}"
 arch=$(uname -m)
 
 if [ "$arch" = "aarch64" ]; then
@@ -33,6 +37,20 @@ source_path="${WORKTREE_PATH#$PWD/}"
 
 # --- Resolve per-branch Dockerfile ---
 sanitized_branch=$(echo "$branch" | sed 's|/|--|g')
+
+# --- Apply branch-specific patches ---
+patchdir="branches/${repo_owner}/${sanitized_branch}"
+if [ -d "$patchdir" ]; then
+    for p in "$patchdir"/*.patch; do
+        [ -f "$p" ] || continue
+        if git -C "$WORKTREE_PATH" apply --check "$PWD/$p" 2>/dev/null; then
+            echo "Applying patch: $p"
+            git -C "$WORKTREE_PATH" apply "$PWD/$p"
+        else
+            echo "Patch already applied or N/A: $p"
+        fi
+    done
+fi
 build_branch="build/${repo_owner}/${sanitized_branch}"
 
 if git rev-parse --verify "$build_branch" &>/dev/null; then
@@ -70,6 +88,7 @@ build_args+=("CONAN_REMOTE=${CONAN_REMOTE}")
 build_args+=("repo=${repo}")
 build_args+=("git_hash=${git_hash}")
 build_args+=("source_path=${source_path}")
+build_args+=("NPROC=${nproc_val}")
 
 labels+=("${tag}")
 
@@ -77,19 +96,16 @@ labels+=("${tag}")
 #     labels="com.ripple.package_info=${CI_PROJECT_NAME}-${CI_COMMIT_REF_NAME}-${CI_COMMIT_SHA}"
 # fi
 
-build_arg="--build-arg="
-build_args=( "${build_args[@]/#/ $build_arg}" )
+for arg in "${build_args[@]}"; do
+    params+=(--build-arg="${arg}")
+done
+for label in "${labels[@]}"; do
+    params+=(--label="com.ripple.${label}")
+done
 
-label="--label=com.ripple."
-labels=( "${labels[@]/#/ $label}" )
-
-if (( ${#build_args[@]} )); then
-    params+=(${build_args[@]})
-fi
-
-if (( ${#labels[@]} )); then
-    params+=(${labels[@]})
-fi
+params+=("--memory=${mem_limit}g")
+params+=("--memory-swap=${mem_limit}g")
+params+=("--target=${DOCKER_TARGET:-xrpld}")
 
 echo "Final image name: ${image}"
 
@@ -110,7 +126,18 @@ done
 
 echo "params: ${params[@]}"
 echo docker build "${params[@]}"
-docker build "${params[@]}"
+
+if [ "${push}" = true ]; then
+    params+=("--push")
+else
+    params+=("--load")
+fi
+
+if [ "${dry_run}" = true ]; then
+    echo "DRY RUN: docker build ${params[*]}"
+else
+    docker build "${params[@]}"
+fi
 
 # if [ -n "$CI" ]; then
 #     docker push $image
