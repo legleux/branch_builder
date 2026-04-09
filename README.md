@@ -1,1 +1,1 @@
-[New main](../../tree/new-main/README.md)
+[New main](../../tree/new-main)
