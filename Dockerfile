@@ -82,16 +82,16 @@ RUN ln -s /opt/xrpld/bin/xrpld /usr/bin/xrpld
 RUN mkdir -p /etc/opt && ln -s /opt/xrpld/etc/ /etc/opt/xrpld
 
 RUN <<EOF
-if [ $(uname -m) = "aarch64" ];then
-    apt-get update && apt-get install --yes \
-        libatomic1
-    rm -rf /var/lib/apt/lists/* && apt-get clean
-fi
+apt-get update && apt-get install --yes --no-install-recommends \
+    ca-certificates \
+    $([ "$(uname -m)" = "aarch64" ] && echo "libatomic1")
+rm -rf /var/lib/apt/lists/* && apt-get clean
 EOF
 
 ENTRYPOINT ["/opt/xrpld/bin/xrpld"]
 
 FROM busybox:glibc AS xrpld-slim
+COPY --from=xrpld /etc/ssl/certs /etc/ssl/certs
 COPY --from=build /root/build/xrpld /usr/bin/xrpld
 COPY --from=build /root/src/cfg/xrpld-example.cfg /etc/xrpld/xrpld.cfg
 COPY --from=build /root/src/cfg/validators-example.txt /etc/xrpld/validators.txt
