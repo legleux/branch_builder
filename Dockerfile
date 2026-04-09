@@ -78,7 +78,8 @@ COPY --from=build /root/build/xrpld /opt/xrpld/bin/xrpld
 COPY --from=build /root/src/cfg/xrpld-example.cfg /opt/xrpld/etc/xrpld.cfg
 COPY --from=build /root/src/cfg/validators-example.txt /opt/xrpld/etc/validators.txt
 
-RUN ln -s /opt/xrpld/bin/xrpld /usr/bin/xrpld
+RUN ln -s /opt/xrpld/bin/xrpld /usr/bin/xrpld && \
+    ln -s /opt/xrpld/bin/xrpld /usr/local/bin/rippled
 RUN mkdir -p /etc/opt && ln -s /opt/xrpld/etc/ /etc/opt/xrpld
 
 RUN <<EOF
