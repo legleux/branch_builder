@@ -23,7 +23,7 @@ Key environment variables (set in `env` or exported before running):
 ## Architecture
 
 - **`build_image.sh`** — Entry point. Sources `env` and `setup_worktree.sh`, applies patches from `branches/`, resolves per-branch Dockerfiles, assembles Docker build args/labels, and runs `docker build`.
-- **`setup_worktree.sh`** — Manages a single bare repo (`repos/rippled.git`) with one remote per fork owner. Creates/updates git worktrees under `worktrees/<owner>/<branch>/`. Idempotent: fetches, compares HEAD to remote, skips checkout if already up-to-date. Exports `WORKTREE_PATH` and `LATEST_HASH`.
+- **`setup_worktree.sh`** — Manages a single bare repo (`repos/rippled.git`) with one remote per fork owner. Creates/updates git worktrees under `worktrees/<owner>/<branch>/`. Idempotent: fetches, compares HEAD to remote, skips checkout if already up-to-date. Supports both branches and tags (annotated tags are dereferenced to commits). Exports `WORKTREE_PATH` and `LATEST_HASH`.
 - **`Dockerfile`** — Two-stage build with two runtime targets:
   1. **Build stage** (`BUILD_IMAGE`, default `ghcr.io/xrplf/ci/ubuntu-jammy:gcc-12`): Installs Conan 2 + CMake via uv, runs `conan install` → `cmake configure` → `cmake --build`, strips the binary.
   2. **`xrpld` target** (`ubuntu:jammy`): Standard runtime image with the stripped `xrpld` binary + config files.

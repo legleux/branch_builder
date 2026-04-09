@@ -47,8 +47,15 @@ else
     echo "Fetching ${REMOTE_NAME}/${branch}"
     git -C "$BARE_REPO" fetch "$REMOTE_NAME" "$branch"
 
-    REMOTE_REF="refs/remotes/${REMOTE_NAME}/${branch}"
-    LATEST_HASH=$(git -C "$BARE_REPO" rev-parse "$REMOTE_REF")
+    if git -C "$BARE_REPO" rev-parse --verify "refs/remotes/${REMOTE_NAME}/${branch}" &>/dev/null; then
+        REMOTE_REF="refs/remotes/${REMOTE_NAME}/${branch}"
+    elif git -C "$BARE_REPO" rev-parse --verify "refs/tags/${branch}" &>/dev/null; then
+        REMOTE_REF="refs/tags/${branch}"
+    else
+        echo "Error: '${branch}' not found as branch or tag on ${REMOTE_NAME}"
+        exit 1
+    fi
+    LATEST_HASH=$(git -C "$BARE_REPO" rev-parse "$REMOTE_REF^{commit}")
 
     sanitized_branch=$(echo "$branch" | sed 's|/|--|g')
     WORKTREE_PATH="$PWD/worktrees/${repo_owner}/${sanitized_branch}"

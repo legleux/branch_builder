@@ -4,6 +4,8 @@ import asyncio
 import json
 import os
 import subprocess
+from datetime import datetime
+from pathlib import Path
 
 from textual.app import ComposeResult
 from textual.containers import Vertical
@@ -81,11 +83,23 @@ class BuildScreen(Screen):
         status = self.query_one("#build-status", Static)
 
         env = os.environ.copy()
-        env.update(self._build_env())
+        build_env = self._build_env()
+        env.update(build_env)
+
+        # Set up log file
+        log_dir = Path("logs")
+        log_dir.mkdir(exist_ok=True)
+        owner = self.config.get("owner", "unknown")
+        branch = self.config.get("branch", "unknown").replace("/", "--")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_path = log_dir / f"{owner}_{branch}_{timestamp}.log"
+        log_file = open(log_path, "w")
 
         cmd = "./build_image.sh"
-        log.write(f"[dim]$ {' '.join(f'{k}={v}' for k, v in self._build_env().items())} {cmd}[/]")
+        header = f"$ {' '.join(f'{k}={v}' for k, v in build_env.items())} {cmd}"
+        log.write(f"[dim]{header}[/]")
         log.write("")
+        log_file.write(header + "\n\n")
 
         try:
             self._process = await asyncio.create_subprocess_exec(
@@ -98,21 +112,23 @@ class BuildScreen(Screen):
             async for line in self._process.stdout:
                 text = line.decode().rstrip()
                 log.write(text)
+                log_file.write(text + "\n")
                 if text.startswith("Final image name:"):
                     self._image_name = text.split(":", 1)[1].strip()
 
             await self._process.wait()
 
             if self._process.returncode == 0:
-                status.update("[green bold]Build succeeded![/]")
+                status.update(f"[green bold]Build succeeded![/] Log: {log_path}")
                 await self._show_image_info()
             else:
                 status.update(
-                    f"[red bold]Build failed (exit {self._process.returncode})[/]"
+                    f"[red bold]Build failed (exit {self._process.returncode})[/] Log: {log_path}"
                 )
         except Exception as e:
             status.update(f"[red bold]Error: {e}[/]")
         finally:
+            log_file.close()
             self._process = None
 
     async def _show_image_info(self) -> None:
