@@ -1,8 +1,23 @@
 [project]
 name = "branch-builder"
 version = "0.1.0"
-description = "Add your description here"
+description = "Build xrpld Docker images from any fork/branch"
 requires-python = ">=3.14"
 dependencies = [
     "textual>=8.1.1",
+]
+
+[project.scripts]
+branch-builder = "builder.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["builder", "tui"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
 ]

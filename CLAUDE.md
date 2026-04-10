@@ -9,21 +9,43 @@ This repo builds Docker images of `rippled` (the XRP Ledger server) from various
 ## Build Command
 
 ```bash
-# Configure target branch/fork in the `env` file, then:
-./build_image.sh
+# CLI (uses env vars for defaults, CLI flags to override):
+uv run branch-builder --owner XRPLF --branch develop --dry-run
+
+# Or set env vars and run with no flags:
+REPO_OWNER=XRPLF BRANCH=develop uv run branch-builder
+
+# TUI (interactive):
+uv run python -m tui
+
+# Legacy shell script (still present, but builder/ module is canonical):
+# ./build_image.sh
 ```
 
-Key environment variables (set in `env` or exported before running):
-- `REPO_OWNER` — GitHub org/user (default: `XRPLF`)
-- `REPO_NAME` — repo name (default: `rippled`)
-- `BRANCH` — branch to build (default: `develop`)
-- `IMAGE` — Docker image name (constructed from `REGISTRY/REPO_NAME`)
-- `GIT_HASH` — alternative to `BRANCH`; specify a commit hash (mutually exclusive with `BRANCH`)
+Key environment variables (CLI flags override these):
+- `REPO_OWNER` / `GITHUB_REPOSITORY_OWNER` — GitHub org/user (default: `XRPLF`)
+- `BRANCH` / `GITHUB_REF_NAME` — branch to build (default: `develop`)
+- `GIT_HASH` — commit hash, mutually exclusive with BRANCH (opt-in only; GITHUB_SHA is NOT auto-used)
+- `REGISTRY` — Docker registry (default: `legleux`)
+- `BUILD_IMAGE` — CI base image (default: `ghcr.io/xrplf/ci/ubuntu-jammy:gcc-12`)
+- `CONAN_REMOTE` — Conan remote URL (default: `conan.ripplex.io`)
+- `NPROC` — build parallelism (default: `24`)
+- `MEM_LIMIT` — Docker memory limit in GB (default: `50`)
+
+## Tests
+
+```bash
+uv run pytest tests/ -v
+```
 
 ## Architecture
 
-- **`build_image.sh`** — Entry point. Sources `env` and `setup_worktree.sh`, applies patches from `branches/`, resolves per-branch Dockerfiles, assembles Docker build args/labels, and runs `docker build`.
-- **`setup_worktree.sh`** — Manages a single bare repo (`repos/rippled.git`) with one remote per fork owner. Creates/updates git worktrees under `worktrees/<owner>/<branch>/`. Idempotent: fetches, compares HEAD to remote, skips checkout if already up-to-date. Supports both branches and tags (annotated tags are dereferenced to commits). Exports `WORKTREE_PATH` and `LATEST_HASH`.
+- **`builder/`** — Python package that replaces `build_image.sh` + `setup_worktree.sh`. Public API: `BuildConfig` (dataclass), `prepare_build()` (worktree + patches + docker command), `run_build()` (execute). CLI via `uv run branch-builder`. The TUI imports this module directly.
+  - **`builder/worktree.py`** — Manages a single bare repo (`repos/rippled.git`) with one remote per fork owner. Creates/updates git worktrees under `worktrees/<owner>/<branch>/`. Idempotent. Supports branches, tags (annotated tags are dereferenced to commits), and raw commit hashes.
+  - **`builder/__init__.py`** — `BuildConfig`, `prepare_build()`, `run_build()`. Env var fallbacks for CI (GITHUB_REPOSITORY_OWNER, GITHUB_REF_NAME).
+  - **`builder/__main__.py`** — CLI entry point (`[project.scripts]` → `branch-builder`).
+- **`build_image.sh`** — Legacy shell entry point (still present). Sources `env` and `setup_worktree.sh`.
+- **`setup_worktree.sh`** — Legacy shell worktree management (still present).
 - **`Dockerfile`** — Two-stage build with two runtime targets:
   1. **Build stage** (`BUILD_IMAGE`, default `ghcr.io/xrplf/ci/ubuntu-jammy:gcc-12`): Installs Conan 2 + CMake via uv, runs `conan install` → `cmake configure` → `cmake --build`, strips the binary.
   2. **`xrpld` target** (`ubuntu:jammy`): Standard runtime image with the stripped `xrpld` binary + config files.

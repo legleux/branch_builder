@@ -19,6 +19,8 @@ from textual.widgets import (
     Tree,
 )
 
+from builder import BuildConfig, prepare_build
+
 
 class BuildScreen(Screen):
     BINDINGS = [
@@ -82,9 +84,30 @@ class BuildScreen(Screen):
         log = self.query_one("#build-log", RichLog)
         status = self.query_one("#build-status", Static)
 
-        env = os.environ.copy()
-        build_env = self._build_env()
-        env.update(build_env)
+        build_config = BuildConfig(
+            owner=self.config.get("owner", "XRPLF"),
+            branch=self.config.get("branch", "develop"),
+            nproc=int(self.config.get("nproc", 16)),
+            mem_limit=int(self.config.get("mem_limit", 50)),
+            push=bool(self.config.get("push")),
+            dry_run=bool(self.config.get("dry_run")),
+            build_tests=bool(self.config.get("tests")),
+            slim=bool(self.config.get("slim")),
+            extra_tags=self.config.get("extra_tags", ""),
+            extra_labels=self.config.get("extra_labels", ""),
+        )
+
+        # Prepare build (worktree setup, patches, command assembly)
+        status.update(
+            f"Preparing [bold]{build_config.owner}/{build_config.branch}[/] ..."
+        )
+        try:
+            result = await asyncio.to_thread(prepare_build, build_config)
+        except Exception as e:
+            status.update(f"[red bold]Preparation failed: {e}[/]")
+            return
+
+        self._image_name = result.image_tag
 
         # Set up log file
         log_dir = Path("logs")
@@ -95,15 +118,20 @@ class BuildScreen(Screen):
         log_path = log_dir / f"{owner}_{branch}_{timestamp}.log"
         log_file = open(log_path, "w")
 
-        cmd = "./build_image.sh"
-        header = f"$ {' '.join(f'{k}={v}' for k, v in build_env.items())} {cmd}"
-        log.write(f"[dim]{header}[/]")
+        cmd_str = " ".join(result.command)
+        log.write(f"[dim]$ {cmd_str}[/]")
         log.write("")
-        log_file.write(header + "\n\n")
+        log_file.write(f"$ {cmd_str}\n\n")
+
+        if build_config.dry_run:
+            status.update("[yellow]Dry run — command printed above[/]")
+            log_file.close()
+            return
 
         try:
+            env = {**os.environ, "BUILDKIT_PROGRESS": "plain"}
             self._process = await asyncio.create_subprocess_exec(
-                "bash", cmd,
+                *result.command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 env=env,
@@ -113,8 +141,6 @@ class BuildScreen(Screen):
                 text = line.decode().rstrip()
                 log.write(text)
                 log_file.write(text + "\n")
-                if text.startswith("Final image name:"):
-                    self._image_name = text.split(":", 1)[1].strip()
 
             await self._process.wait()
 
@@ -181,21 +207,6 @@ class BuildScreen(Screen):
                     self._build_tree(child, item)
                 else:
                     node.add_leaf(f"[dim]{i}:[/] {item}")
-
-    def _build_env(self) -> dict[str, str]:
-        return {
-            "BUILDKIT_PROGRESS": "plain",
-            "REPO_OWNER": self.config.get("owner", "XRPLF"),
-            "BRANCH": self.config.get("branch", "develop"),
-            "NPROC": str(self.config.get("nproc", "16")),
-            "MEM_LIMIT": str(self.config.get("mem_limit", "50")),
-            "DOCKER_DEFAULT_PLATFORM": "linux/amd64",
-            **({"PUSH": "true"} if self.config.get("push") else {}),
-            **({"DRY_RUN": "true"} if self.config.get("dry_run") else {}),
-            **({"ADD_TAGS": self.config["extra_tags"]} if self.config.get("extra_tags") else {}),
-            **({"ADD_LABELS": self.config["extra_labels"]} if self.config.get("extra_labels") else {}),
-            **({"DOCKER_TARGET": "xrpld-slim"} if self.config.get("slim") else {"DOCKER_TARGET": "xrpld"}),
-        }
 
     def action_cancel_build(self) -> None:
         if self._process:
