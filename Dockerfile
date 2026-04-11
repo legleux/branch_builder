@@ -16,7 +16,7 @@ COPY ${source_path} /root/src
 # create a minimal .git with just enough plumbing to make rev-parse work.
 RUN <<EOF
     cd /root/src && rm -f .git
-    mkdir -p .git/objects .git/refs/heads
+    mkdir -p .git/objects .git/refs/heads/$(dirname "${branch}")
     echo "ref: refs/heads/${branch}" > .git/HEAD
     echo "${git_hash}" > .git/refs/heads/${branch}
 EOF
