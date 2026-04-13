@@ -46,6 +46,8 @@ RUN echo "core.download:parallel=$(nproc)" >> $CONAN_HOME/global.conf && \
     echo "tools.build:jobs=${NPROC}" >> $CONAN_HOME/global.conf && \
     conan remote add --index 0 xrplf "https://${CONAN_REMOTE}"
 
+RUN conan config install src/conan/profiles/default -tf "$(conan config home)/profiles/"
+
 # Conan install (dependency layer — cached unless conanfile/profile changes)
 RUN conan install src \
     --build missing \
