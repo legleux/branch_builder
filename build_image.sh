@@ -27,6 +27,20 @@
 set +o xtrace
 
 # =============================================================================
+# Terminal colors
+# =============================================================================
+# Falls back to no color when stdout isn't a terminal (piped output, CI).
+if [ -t 1 ]; then
+    C_HEAD='\033[1;36m'   # bold cyan — section headers
+    C_VAL='\033[1;37m'    # bold white — primary values
+    C_YEL='\033[1;33m'    # bold yellow — commits, resolved branches
+    C_DIM='\033[0;90m'    # dim gray — secondary info
+    C_RST='\033[0m'       # reset
+else
+    C_HEAD='' C_VAL='' C_YEL='' C_DIM='' C_RST=''
+fi
+
+# =============================================================================
 # Load defaults
 # =============================================================================
 # Reads env file which sets: CONAN_REMOTE, BUILD_IMAGE, REGISTRY, REPO_NAME,
@@ -139,7 +153,7 @@ if [ -n "${TAG:-}" ]; then
             | grep "^${repo_owner}/release-${major_minor}$" \
             | sed "s|^${repo_owner}/||" || true)
         if [ -n "$release_branch" ]; then
-            echo "Resolved tag ${TAG} to branch ${release_branch}"
+            echo -e "Resolved tag ${C_VAL}${TAG}${C_RST} to branch ${C_YEL}${release_branch}${C_RST}"
             branch="$release_branch"
         fi
     fi
@@ -156,35 +170,45 @@ fi
 # first with --check; already-applied or non-matching patches are skipped
 # (idempotent — safe to re-run).
 sanitized_branch=$(echo "$branch" | sed 's|/|--|g')
+sanitized_ref=$(echo "$ref_name" | sed 's|/|--|g')
 
-patchdir="branches/${repo_owner}/${sanitized_branch}"
-if [ -d "$patchdir" ]; then
-    for p in "$patchdir"/*.patch; do
-        [ -f "$p" ] || continue
-        if git -C "$WORKTREE_PATH" apply --check "$PWD/$p" 2>/dev/null; then
-            echo "Applying patch: $p"
-            git -C "$WORKTREE_PATH" apply "$PWD/$p"
-        else
-            echo "Patch already applied or N/A: $p"
-        fi
-    done
-fi
+# When TAG resolves to a different branch (e.g., TAG=3.1.2 → branch=release-3.1),
+# check both the original ref name and the resolved branch name for patches and
+# Dockerfile overrides. The original ref name takes priority (e.g., build/XRPLF/3.1.2
+# is checked before build/XRPLF/release--3.1).
+
+# --- Patches: try ref_name first, then resolved branch ---
+for candidate in "$sanitized_ref" "$sanitized_branch"; do
+    patchdir="branches/${repo_owner}/${candidate}"
+    if [ -d "$patchdir" ]; then
+        for p in "$patchdir"/*.patch; do
+            [ -f "$p" ] || continue
+            if git -C "$WORKTREE_PATH" apply --check "$PWD/$p" 2>/dev/null; then
+                echo "Applying patch: $p"
+                git -C "$WORKTREE_PATH" apply "$PWD/$p"
+            else
+                echo "Patch already applied or N/A: $p"
+            fi
+        done
+        break
+    fi
+done
 
 # =============================================================================
 # Resolve per-branch Dockerfile
 # =============================================================================
-# Checks if a git branch named build/<owner>/<sanitized-branch> exists in
-# THIS repo (not the rippled repo). If so, extracts its Dockerfile and uses
-# it instead of the default. This allows branches that need a fundamentally
-# different build process (e.g., custom Conan options, extra build stages)
-# to carry their own Dockerfile without polluting the main branch.
-build_branch="build/${repo_owner}/${sanitized_branch}"
-
-if git rev-parse --verify "$build_branch" &>/dev/null; then
-    echo "Using Dockerfile from branch: ${build_branch}"
-    git show "${build_branch}:Dockerfile" > /tmp/Dockerfile.build
-    DOCKERFILE="/tmp/Dockerfile.build"
-fi
+# Checks if a git branch named build/<owner>/<sanitized-ref> exists in THIS
+# repo (not the rippled repo). Tries the original ref name first (e.g.,
+# build/XRPLF/3.1.2), then the resolved branch (e.g., build/XRPLF/release--3.1).
+for candidate in "$sanitized_ref" "$sanitized_branch"; do
+    build_branch="build/${repo_owner}/${candidate}"
+    if git rev-parse --verify "$build_branch" &>/dev/null; then
+        echo -e "Using Dockerfile from branch: ${C_YEL}${build_branch}${C_RST} ${C_DIM}(branch_builder repo)${C_RST}"
+        git show "${build_branch}:Dockerfile" > /tmp/Dockerfile.build
+        DOCKERFILE="/tmp/Dockerfile.build"
+        break
+    fi
+done
 
 # =============================================================================
 # Compute Docker image tag
@@ -289,32 +313,43 @@ params+=("--target=${DOCKER_TARGET:-xrpld}")
 # =============================================================================
 # Print build summary
 # =============================================================================
-echo "Final image name: ${image}"
+echo -e "${C_HEAD}Image:${C_RST}  ${C_VAL}${image}${C_RST}"
+echo -e "${C_HEAD}Source:${C_RST} ${C_VAL}${repo_owner}/${repo_name}${C_RST}"
 
 if [ "$ref_type" = "tag" ]; then
-    echo "Tag: ${TAG}"
+    echo -e "  ${C_HEAD}Tag:${C_RST}    ${C_VAL}${TAG}${C_RST}"
+    if [ "$branch" != "$ref_name" ]; then
+        echo -e "  ${C_HEAD}Branch:${C_RST} ${C_VAL}${branch}${C_RST}"
+    fi
 elif [ -n "${branch}" ]; then
-    echo "Branch: ${branch}"
+    echo -e "  ${C_HEAD}Branch:${C_RST} ${C_VAL}${branch}${C_RST}"
 fi
-echo "Commit: ${git_hash}"
-echo "Build configuration: ${build_type:-Release}"
+echo -e "  ${C_HEAD}Commit:${C_RST} ${C_YEL}${git_hash}${C_RST}"
 
-echo "Tags:"
+if [ -n "${DOCKERFILE:-}" ]; then
+    echo -e "${C_HEAD}Dockerfile:${C_RST} ${C_VAL}${build_branch}${C_RST} ${C_DIM}(branch_builder repo)${C_RST}"
+else
+    echo -e "${C_HEAD}Dockerfile:${C_RST} ${C_DIM}default${C_RST}"
+fi
+
+echo -e "${C_HEAD}Build configuration:${C_RST} ${C_VAL}${build_type:-Release}${C_RST}"
+
+echo -e "${C_HEAD}Tags:${C_RST}"
 for t in "${all_tags[@]}"; do
-    echo "  ${t}"
+    echo -e "  ${C_VAL}${t}${C_RST}"
 done
 
-echo "Build args:"
+echo -e "${C_HEAD}Build args:${C_RST}"
 for arg in "${build_args[@]}"; do
-    echo "  ${arg}"
+    echo -e "  ${arg%%=*}=${C_HEAD}${arg#*=}${C_RST}"
 done
-echo "Labels:"
+echo -e "${C_HEAD}Labels:${C_RST}"
 for label in "${labels[@]}"; do
-    echo "  com.ripple.${label}"
+    echo -e "  com.ripple.${label%%=*}=${C_HEAD}${label#*=}${C_RST}"
 done
 if [ -n "${ADD_LABELS:-}" ]; then
     for l in "${extra_labels[@]}"; do
-        echo "  ${l}"
+        echo -e "  ${l%%=*}=${C_HEAD}${l#*=}${C_RST}"
     done
 fi
 
