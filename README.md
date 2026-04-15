@@ -114,9 +114,173 @@ The **Build** screen streams the build log in real time and, on success, shows t
 
 ## Adding a New Branch
 
-1. If the branch needs patches or custom Conan recipes, add them to `branches/<owner>/<sanitized-branch>/`.
-2. If it needs a completely different Dockerfile, create a git branch named `build/<owner>/<sanitized-branch>` with the custom `Dockerfile` at its root.
-3. Build it: `REPO_OWNER=<owner> BRANCH=<branch> ./build_image.sh`
+Most branches build with the default Dockerfile and no patches. Just set the environment variables and build:
+
+```bash
+REPO_OWNER=Transia-RnD BRANCH=feature-batch ./build_image.sh
+```
+
+When a branch won't build with the defaults, you have two mechanisms: **host-side patches** and **per-branch Dockerfiles**. Use patches for small fixes; use a custom Dockerfile when the build process itself needs to change.
+
+### Host-Side Patches
+
+Patches are applied to the worktree _before_ Docker copies the source. This is the right tool for small source fixes that don't change the build process (fixing case-sensitivity issues, tweaking CMake flags, etc.).
+
+1. Figure out the patch directory name. Branch slashes become double-dashes:
+
+   | Owner | Branch | Patch directory |
+   |---|---|---|
+   | `XRPLF` | `develop` | `branches/XRPLF/develop/` |
+   | `XRPLF` | `ripple/smart-escrow` | `branches/XRPLF/ripple--smart-escrow/` |
+   | `tequdev` | `sponsor` | `branches/tequdev/sponsor/` |
+
+2. Create the directory and add `.patch` files:
+
+   ```bash
+   mkdir -p branches/tequdev/sponsor
+   # Generate a patch from the worktree, or write one by hand
+   cp fix-case-sensitivity.patch branches/tequdev/sponsor/
+   ```
+
+3. Build. `build_image.sh` applies every `.patch` file in that directory via `git apply`. Patches that are already applied (or don't match) are skipped.
+
+**Real example** — the `tequdev/sponsor` branch has a case-sensitivity issue on Linux:
+
+```
+branches/tequdev/sponsor/fix-case-sensitivity.patch
+```
+
+This renames `Sponsor/` to `sponsor/` in the include paths so the build succeeds on case-sensitive filesystems.
+
+### Conan Recipe Overrides
+
+Some branches need a patched Conan recipe — for example, the `ripple/smart-escrow` branch builds WAMR with instruction metering enabled. To set this up:
+
+1. Put the custom `conanfile.py` (and any patch files it references via `conandata.yml`) in the branch's patch directory:
+
+   ```
+   branches/XRPLF/ripple--smart-escrow/wamr/
+     conanfile.py          # custom Conan recipe
+     patches/
+       ripp_metering.patch # applied by Conan during build
+   ```
+
+2. The per-branch Dockerfile (or a host-side patch) must configure Conan to use this local recipe instead of fetching from the remote. See the `build/XRPLF/3.1.2` branch for an example of how this is wired up in a custom Dockerfile.
+
+### Per-Branch Dockerfiles
+
+When patches aren't enough — the branch needs different Conan options, an extra build step, or a different base image — use a per-branch Dockerfile.
+
+1. Create a git branch in **this repo** (not the rippled repo) named `build/<owner>/<sanitized-branch>`:
+
+   ```bash
+   git checkout -b build/tequdev/sponsor
+   ```
+
+2. Edit the `Dockerfile` at the repo root on that branch. It receives the same build args as the default Dockerfile:
+
+   | Build arg | Value |
+   |---|---|
+   | `branch` | Branch name (e.g., `sponsor`) |
+   | `git_hash` | Resolved commit hash |
+   | `source_path` | Relative path to the worktree (e.g., `worktrees/tequdev/sponsor`) |
+   | `CONAN_REMOTE` | Conan remote URL |
+   | `NPROC` | Parallel job count |
+   | `BUILD_IMAGE` | Base build image |
+   | `BUILD_TESTS` | `True` or `False` |
+
+3. Commit and switch back to your working branch:
+
+   ```bash
+   git add Dockerfile
+   git commit -m "custom Dockerfile for tequdev/sponsor"
+   git checkout -
+   ```
+
+4. Build normally. `build_image.sh` detects the `build/` branch automatically:
+
+   ```bash
+   REPO_OWNER=tequdev BRANCH=sponsor ./build_image.sh
+   ```
+
+   You'll see `Using Dockerfile from branch: build/tequdev/sponsor` in the output.
+
+**Existing example**: `build/XRPLF/3.1.2` has a custom Dockerfile for the 3.1.2 release.
+
+### Testing Before a Full Build
+
+Full builds take a long time. To iterate on patches or Dockerfile changes, use a throwaway container with the worktree mounted:
+
+```bash
+# First, set up the worktree without building
+source ./env
+REPO_OWNER=tequdev BRANCH=sponsor source ./setup_worktree.sh
+
+# Drop into the build image with the source mounted
+docker run --rm -it \
+  -v "$WORKTREE_PATH:/root/src" \
+  ghcr.io/xrplf/ci/ubuntu-jammy:gcc-12 \
+  bash
+
+# Inside the container, test conan install / cmake configure
+conan install /root/src --build missing --output-folder tc
+cmake -B build -S /root/src -DCMAKE_TOOLCHAIN_FILE=tc/build/generators/conan_toolchain.cmake
+```
+
+## Maintaining Existing Branches
+
+### Updating a Worktree
+
+Worktrees are updated automatically on each build. If the remote branch has new commits, `setup_worktree.sh` fetches and checks out the latest. If the worktree is already at HEAD, it skips the checkout.
+
+### Re-generating Patches
+
+If upstream changes break an existing patch:
+
+1. Build — `git apply` will report the patch failed (the build continues, printing `Patch already applied or N/A`).
+2. Fix the patch against the new source. The easiest way:
+
+   ```bash
+   cd worktrees/<owner>/<sanitized-branch>
+   # Make the fix manually
+   git diff > ../../../branches/<owner>/<sanitized-branch>/my-fix.patch
+   ```
+
+3. Replace the old `.patch` file and rebuild.
+
+### Cleaning Up Stale Worktrees
+
+Worktrees and the bare repo accumulate over time. To reclaim disk space:
+
+```bash
+# List all worktrees
+git -C repos/rippled.git worktree list
+
+# Remove a specific worktree
+git -C repos/rippled.git worktree remove worktrees/tequdev/sponsor
+
+# Prune stale worktree references
+git -C repos/rippled.git worktree prune
+
+# Nuclear option — remove everything and rebuild from scratch
+rm -rf repos/ worktrees/
+```
+
+### Removing Branch Support
+
+1. Delete the patch directory: `rm -rf branches/<owner>/<sanitized-branch>/`
+2. Delete the build branch (if one exists): `git branch -D build/<owner>/<sanitized-branch>`
+3. Optionally remove the worktree (see above).
+
+## Troubleshooting
+
+| Problem | Cause | Fix |
+|---|---|---|
+| `Patch already applied or N/A` for a patch that should apply | Upstream incorporated the fix, or the patch context drifted | Re-generate the patch against current source, or delete it |
+| `'branch' not found as branch or tag on <remote>` | Branch was deleted upstream, or typo in `BRANCH` | Check the remote: `git -C repos/rippled.git ls-remote <owner>` |
+| Conan install fails with missing recipe | Branch needs a custom Conan recipe not on the remote | Add the recipe to `branches/<owner>/<sanitized-branch>/` and wire it into a per-branch Dockerfile |
+| Build OOM-killed | `MEM_LIMIT` too low for the link step | Increase `MEM_LIMIT` (default 50 GB) or reduce `NPROC` |
+| Docker cache stale after switching branches | Docker layer cache from a previous branch's source | Rebuild with `NO_CACHE=1 ./build_image.sh` |
 
 ## Directory Layout
 
