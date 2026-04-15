@@ -27,9 +27,14 @@ REPO_OWNER=XRPLF GIT_HASH=abc123def456 ./build_image.sh
 # Dry run (print the docker command without executing)
 DRY_RUN=true ./build_image.sh
 
+# Build a tagged release
+TAG=3.1.2 ./build_image.sh
+
 # Build and push to registry
 PUSH=true ./build_image.sh
 ```
+
+> **Tags vs branches:** Use `TAG` for tags and `BRANCH` for branches — they're mutually exclusive. `TAG` validates that the value is actually a tag on the remote, so `TAG=develop` will error out. `BRANCH` also accepts tag names (it tries as a branch first, falls back to `refs/tags/`), but `TAG` is preferred when you know you want a release tag.
 
 ### TUI
 
@@ -47,8 +52,9 @@ Set these in the `env` file or export before running `build_image.sh`:
 |---|---|---|
 | `REPO_OWNER` | `XRPLF` | GitHub org or user |
 | `REPO_NAME` | `rippled` | Repository name |
-| `BRANCH` | `develop` | Branch to build (mutually exclusive with `GIT_HASH`) |
-| `GIT_HASH` | | Commit hash to build (mutually exclusive with `BRANCH`) |
+| `BRANCH` | `develop` | Branch or tag to build (mutually exclusive with `GIT_HASH` and `TAG`) |
+| `TAG` | | Tag to build; validated as a real tag (mutually exclusive with `BRANCH` and `GIT_HASH`) |
+| `GIT_HASH` | | Commit hash to build (mutually exclusive with `BRANCH` and `TAG`) |
 | `IMAGE` | `${REGISTRY}/${REPO_NAME}` | Docker image name |
 | `REGISTRY` | `legleux` | Docker registry |
 | `BUILD_IMAGE` | `ghcr.io/xrplf/ci/ubuntu-jammy:gcc-12` | Base image for the build stage |
@@ -59,6 +65,8 @@ Set these in the `env` file or export before running `build_image.sh`:
 | `PUSH` | `false` | Push image to registry (`false` loads locally) |
 | `DOCKER_TARGET` | `xrpld` | Dockerfile target stage (`xrpld` or `xrpld-slim`) |
 | `BUILD_TESTS` | `False` | Build xrpld unit tests |
+| `ADD_TAGS` | | Comma-separated extra tags. Plain names are suffixes (e.g., `my_tag` becomes `$IMAGE:my_tag`). Values with `/` are used as-is (e.g., `other/repo:v1`). |
+| `ADD_LABELS` | | Comma-separated extra Docker labels (e.g., `env=staging,team=infra`) |
 | `NO_CACHE` | | Set to any value to disable Docker layer cache |
 
 ## How It Works
@@ -95,6 +103,20 @@ Two runtime targets are available:
 |---|---|---|
 | `xrpld` | `ubuntu:jammy` | Standard image with shell and package manager |
 | `xrpld-slim` | `busybox:glibc` | Minimal image (~5x smaller) |
+
+### 5. Push
+
+After a successful build, you're prompted to push all tags:
+
+```
+Push all tags?
+  legleux/rippled:release_3.1
+  rippleci/rippled:latest
+  rippleci/rippled:3.1.2
+[y/N]
+```
+
+This only appears in interactive terminals (not CI or piped contexts). To push automatically during the build instead, use `PUSH=true`. In dry-run mode, the push commands are printed but not executed.
 
 ## TUI Features
 
