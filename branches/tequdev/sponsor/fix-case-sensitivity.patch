@@ -1,0 +1,16 @@
+diff --git a/include/xrpl/tx/transactors/Sponsor/SponsorshipSet.h b/include/xrpl/tx/transactors/sponsor/SponsorshipSet.h
+similarity index 100%
+rename from include/xrpl/tx/transactors/Sponsor/SponsorshipSet.h
+rename to include/xrpl/tx/transactors/sponsor/SponsorshipSet.h
+diff --git a/include/xrpl/tx/transactors/Sponsor/SponsorshipTransfer.h b/include/xrpl/tx/transactors/sponsor/SponsorshipTransfer.h
+similarity index 100%
+rename from include/xrpl/tx/transactors/Sponsor/SponsorshipTransfer.h
+rename to include/xrpl/tx/transactors/sponsor/SponsorshipTransfer.h
+diff --git a/src/libxrpl/tx/transactors/Sponsor/SponsorshipSet.cpp b/src/libxrpl/tx/transactors/sponsor/SponsorshipSet.cpp
+similarity index 100%
+rename from src/libxrpl/tx/transactors/Sponsor/SponsorshipSet.cpp
+rename to src/libxrpl/tx/transactors/sponsor/SponsorshipSet.cpp
+diff --git a/src/libxrpl/tx/transactors/Sponsor/SponsorshipTransfer.cpp b/src/libxrpl/tx/transactors/sponsor/SponsorshipTransfer.cpp
+similarity index 100%
+rename from src/libxrpl/tx/transactors/Sponsor/SponsorshipTransfer.cpp
+rename to src/libxrpl/tx/transactors/sponsor/SponsorshipTransfer.cpp

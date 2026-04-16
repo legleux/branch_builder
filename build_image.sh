@@ -197,15 +197,26 @@ done
 # =============================================================================
 # Resolve per-branch Dockerfile
 # =============================================================================
-# Checks if a git branch named build/<owner>/<sanitized-ref> exists in THIS
-# repo (not the rippled repo). Tries the original ref name first (e.g.,
-# build/XRPLF/3.1.2), then the resolved branch (e.g., build/XRPLF/release--3.1).
+# Checks for a custom Dockerfile in branches/<owner>/<ref>/Dockerfile on disk.
+# Tries the original ref name first (e.g., branches/XRPLF/3.1.2/Dockerfile),
+# then the resolved branch (e.g., branches/XRPLF/release--3.1/Dockerfile).
+# Falls back to legacy build/* git branches for backward compatibility.
+# dockerfile_source is set for the summary output.
 for candidate in "$sanitized_ref" "$sanitized_branch"; do
+    dockerfile_override="branches/${repo_owner}/${candidate}/Dockerfile"
+    if [ -f "$dockerfile_override" ]; then
+        echo -e "Using Dockerfile: ${C_YELLOW}${dockerfile_override}${C_RST}"
+        DOCKERFILE="$dockerfile_override"
+        dockerfile_source="$dockerfile_override"
+        break
+    fi
+    # Fallback: legacy build/* branch
     build_branch="build/${repo_owner}/${candidate}"
     if git rev-parse --verify "$build_branch" &>/dev/null; then
-        echo -e "Using Dockerfile from branch: ${C_YELLOW}${build_branch}${C_RST} ${C_DIM}(branch_builder repo)${C_RST}"
+        echo -e "Using Dockerfile from branch: ${C_YELLOW}${build_branch}${C_RST} ${C_DIM}(legacy — consider moving to ${dockerfile_override})${C_RST}"
         git show "${build_branch}:Dockerfile" > /tmp/Dockerfile.build
         DOCKERFILE="/tmp/Dockerfile.build"
+        dockerfile_source="${build_branch} (git branch)"
         break
     fi
 done
@@ -327,7 +338,7 @@ fi
 echo -e "  ${C_CYAN}Commit:${C_RST} ${C_WHITE}${git_hash}${C_RST}"
 
 if [ -n "${DOCKERFILE:-}" ]; then
-    echo -e "${C_CYAN}Dockerfile:${C_RST} ${C_WHITE}${build_branch}${C_RST} ${C_DIM}(branch_builder repo)${C_RST}"
+    echo -e "${C_CYAN}Dockerfile:${C_RST} ${C_YELLOW}${dockerfile_source}${C_RST}"
 else
     echo -e "${C_CYAN}Dockerfile:${C_RST} ${C_DIM}default${C_RST}"
 fi

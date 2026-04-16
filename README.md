@@ -88,7 +88,7 @@ If a directory exists at `branches/<owner>/<sanitized-branch>/`, any `.patch` fi
 
 ### 3. Per-Branch Dockerfiles
 
-If a git branch named `build/<owner>/<sanitized-branch>` exists in this repo, its `Dockerfile` is extracted and used instead of the default.
+If `branches/<owner>/<sanitized-branch>/Dockerfile` exists, it is used instead of the default. This keeps the custom Dockerfile alongside patches and Conan overrides in one place.
 
 ### 4. Docker Build
 
@@ -193,13 +193,13 @@ Some branches need a patched Conan recipe — for example, the `ripple/smart-esc
 
 When patches aren't enough — the branch needs different Conan options, an extra build step, or a different base image — use a per-branch Dockerfile.
 
-1. Create a git branch in **this repo** (not the rippled repo) named `build/<owner>/<sanitized-branch>`:
+1. Add a `Dockerfile` to the branch's directory under `branches/`:
 
    ```bash
-   git checkout -b build/tequdev/sponsor
+   cp Dockerfile branches/tequdev/sponsor/Dockerfile
    ```
 
-2. Edit the `Dockerfile` at the repo root on that branch. It receives the same build args as the default Dockerfile:
+2. Edit it. It receives the same build args as the default Dockerfile:
 
    | Build arg | Value |
    |---|---|
@@ -211,23 +211,15 @@ When patches aren't enough — the branch needs different Conan options, an extr
    | `BUILD_IMAGE` | Base build image |
    | `BUILD_TESTS` | `True` or `False` |
 
-3. Commit and switch back to your working branch:
-
-   ```bash
-   git add Dockerfile
-   git commit -m "custom Dockerfile for tequdev/sponsor"
-   git checkout -
-   ```
-
-4. Build normally. `build_image.sh` detects the `build/` branch automatically:
+3. Build normally. `build_image.sh` detects the custom Dockerfile automatically:
 
    ```bash
    REPO_OWNER=tequdev BRANCH=sponsor ./build_image.sh
    ```
 
-   You'll see `Using Dockerfile from branch: build/tequdev/sponsor` in the output.
+   You'll see `Using Dockerfile: branches/tequdev/sponsor/Dockerfile` in the output.
 
-**Existing example**: `build/XRPLF/3.1.2` has a custom Dockerfile for the 3.1.2 release.
+**Existing example**: `branches/XRPLF/3.1.2/Dockerfile` has a custom Dockerfile for the 3.1.2 release (uses `rippled` binary naming instead of `xrpld`).
 
 ### Testing Before a Full Build
 
@@ -326,7 +318,7 @@ build_image.sh              # main entry point
 setup_worktree.sh           # git worktree management
 Dockerfile                  # two-stage xrpld build
 env                         # default environment variables
-branches/                   # per-branch build customizations (patches, recipes)
+branches/                   # per-branch build customizations (patches, recipes, Dockerfiles)
 tui/                        # Textual TUI app
   app.py                    #   app shell + gh auth check
   github.py                 #   GitHub API queries (forks, branches, PRs)
