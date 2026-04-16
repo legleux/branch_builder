@@ -31,13 +31,13 @@ set +o xtrace
 # =============================================================================
 # Falls back to no color when stdout isn't a terminal (piped output, CI).
 if [ -t 1 ]; then
-    C_HEAD='\033[1;36m'   # bold cyan — section headers
-    C_VAL='\033[1;37m'    # bold white — primary values
-    C_YEL='\033[1;33m'    # bold yellow — commits, resolved branches
-    C_DIM='\033[0;90m'    # dim gray — secondary info
-    C_RST='\033[0m'       # reset
+    C_CYAN='\033[1;36m'    # bold cyan — section headers
+    C_WHITE='\033[1;37m'   # bold white — primary values
+    C_YELLOW='\033[1;33m'  # bold yellow — commits, resolved branches
+    C_DIM='\033[0;90m'     # dim gray — secondary info
+    C_RST='\033[0m'        # reset
 else
-    C_HEAD='' C_VAL='' C_YEL='' C_DIM='' C_RST=''
+    C_CYAN='' C_WHITE='' C_YELLOW='' C_DIM='' C_RST=''
 fi
 
 # =============================================================================
@@ -153,7 +153,7 @@ if [ -n "${TAG:-}" ]; then
             | grep "^${repo_owner}/release-${major_minor}$" \
             | sed "s|^${repo_owner}/||" || true)
         if [ -n "$release_branch" ]; then
-            echo -e "Resolved tag ${C_VAL}${TAG}${C_RST} to branch ${C_YEL}${release_branch}${C_RST}"
+            echo -e "Resolved tag ${C_WHITE}${TAG}${C_RST} to branch ${C_YELLOW}${release_branch}${C_RST}"
             branch="$release_branch"
         fi
     fi
@@ -203,7 +203,7 @@ done
 for candidate in "$sanitized_ref" "$sanitized_branch"; do
     build_branch="build/${repo_owner}/${candidate}"
     if git rev-parse --verify "$build_branch" &>/dev/null; then
-        echo -e "Using Dockerfile from branch: ${C_YEL}${build_branch}${C_RST} ${C_DIM}(branch_builder repo)${C_RST}"
+        echo -e "Using Dockerfile from branch: ${C_YELLOW}${build_branch}${C_RST} ${C_DIM}(branch_builder repo)${C_RST}"
         git show "${build_branch}:Dockerfile" > /tmp/Dockerfile.build
         DOCKERFILE="/tmp/Dockerfile.build"
         break
@@ -313,43 +313,43 @@ params+=("--target=${DOCKER_TARGET:-xrpld}")
 # =============================================================================
 # Print build summary
 # =============================================================================
-echo -e "${C_HEAD}Image:${C_RST}  ${C_VAL}${image}${C_RST}"
-echo -e "${C_HEAD}Source:${C_RST} ${C_VAL}${repo_owner}/${repo_name}${C_RST}"
+echo -e "${C_CYAN}Image:${C_RST}  ${C_WHITE}${image}${C_RST}"
+echo -e "${C_CYAN}Source:${C_RST} ${C_WHITE}${repo_owner}/${repo_name}${C_RST}"
 
 if [ "$ref_type" = "tag" ]; then
-    echo -e "  ${C_HEAD}Tag:${C_RST}    ${C_VAL}${TAG}${C_RST}"
+    echo -e "  ${C_CYAN}Tag:${C_RST}    ${C_WHITE}${TAG}${C_RST}"
     if [ "$branch" != "$ref_name" ]; then
-        echo -e "  ${C_HEAD}Branch:${C_RST} ${C_VAL}${branch}${C_RST}"
+        echo -e "  ${C_CYAN}Branch:${C_RST} ${C_WHITE}${branch}${C_RST}"
     fi
 elif [ -n "${branch}" ]; then
-    echo -e "  ${C_HEAD}Branch:${C_RST} ${C_VAL}${branch}${C_RST}"
+    echo -e "  ${C_CYAN}Branch:${C_RST} ${C_WHITE}${branch}${C_RST}"
 fi
-echo -e "  ${C_HEAD}Commit:${C_RST} ${C_YEL}${git_hash}${C_RST}"
+echo -e "  ${C_CYAN}Commit:${C_RST} ${C_WHITE}${git_hash}${C_RST}"
 
 if [ -n "${DOCKERFILE:-}" ]; then
-    echo -e "${C_HEAD}Dockerfile:${C_RST} ${C_VAL}${build_branch}${C_RST} ${C_DIM}(branch_builder repo)${C_RST}"
+    echo -e "${C_CYAN}Dockerfile:${C_RST} ${C_WHITE}${build_branch}${C_RST} ${C_DIM}(branch_builder repo)${C_RST}"
 else
-    echo -e "${C_HEAD}Dockerfile:${C_RST} ${C_DIM}default${C_RST}"
+    echo -e "${C_CYAN}Dockerfile:${C_RST} ${C_DIM}default${C_RST}"
 fi
 
-echo -e "${C_HEAD}Build configuration:${C_RST} ${C_VAL}${build_type:-Release}${C_RST}"
+echo -e "${C_CYAN}Build configuration:${C_RST} ${C_WHITE}${build_type:-Release}${C_RST}"
 
-echo -e "${C_HEAD}Tags:${C_RST}"
+echo -e "${C_CYAN}Tags:${C_RST}"
 for t in "${all_tags[@]}"; do
-    echo -e "  ${C_VAL}${t}${C_RST}"
+    echo -e "  ${C_WHITE}${t}${C_RST}"
 done
 
-echo -e "${C_HEAD}Build args:${C_RST}"
+echo -e "${C_CYAN}Build args:${C_RST}"
 for arg in "${build_args[@]}"; do
-    echo -e "  ${arg%%=*}=${C_HEAD}${arg#*=}${C_RST}"
+    echo -e "  ${C_CYAN}${arg%%=*}=${C_RST}${C_WHITE}${arg#*=}${C_RST}"
 done
-echo -e "${C_HEAD}Labels:${C_RST}"
+echo -e "${C_CYAN}Labels:${C_RST}"
 for label in "${labels[@]}"; do
-    echo -e "  com.ripple.${label%%=*}=${C_HEAD}${label#*=}${C_RST}"
+    echo -e "  ${C_CYAN}com.ripple.${label%%=*}=${C_RST}${C_WHITE}${label#*=}${C_RST}"
 done
 if [ -n "${ADD_LABELS:-}" ]; then
     for l in "${extra_labels[@]}"; do
-        echo -e "  ${l%%=*}=${C_HEAD}${l#*=}${C_RST}"
+        echo -e "  ${C_CYAN}${l%%=*}=${C_RST}${C_WHITE}${l#*=}${C_RST}"
     done
 fi
 
