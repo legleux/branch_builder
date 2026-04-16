@@ -33,6 +33,7 @@ Key environment variables (set in `env` or exported before running):
   3. **`xrpld-slim` target** (`busybox:glibc`): Minimal runtime image.
   - Source is COPYed from a worktree via `source_path` build arg. Fake `.git` plumbing is created in-container for GitInfo.cmake.
 - **`env`** — Default environment variables. Uncomment the block for the desired branch/fork.
+- **`labels.template`** — OCI image labels (`org.opencontainers.image.*`) sourced by `build_image.sh`. Vendor is gated to XRPLF/rippled|xrpld builds; forks get no vendor label. `org.xrplf.image.branch` is appended only when a tag resolves to a different source branch (e.g., `TAG=3.1.2` → `release-3.1`).
 - **`branches/`** — Per-branch build customizations, organized as `branches/<owner>/<sanitized-branch>/`. Patch files (`.patch`) are applied to the worktree on the host before Docker COPY.
 - **`smart_escrow/`** — Local development copy of the WAMR Conan recipe with instruction metering patches (same content as `branches/XRPLF/rippled/ripple/smart-escrow/wamr/`).
 

@@ -1,0 +1,44 @@
+# labels.template — Docker labels applied to every xrpld image build.
+#
+# Sourced by build_image.sh. At that point the following shell variables
+# are already set and may be referenced here:
+#
+#   repo_owner   — GitHub org/user (e.g., XRPLF, Transia-RnD)
+#   repo_name    — repo name (e.g., rippled)
+#   repo         — "${repo_owner}/${repo_name}"
+#   branch       — the branch passed to the build (may be resolved from TAG)
+#   ref_name     — the original user-supplied TAG or BRANCH
+#   ref_type     — "tag" or "branch"
+#   git_hash     — full commit SHA being built
+#
+# This file populates oci_labels[] which build_image.sh passes to docker
+# build. All keys use the OCI standard "org.opencontainers.image.*"
+# namespace — registries like GHCR and Docker Hub surface these on the
+# image page.
+#
+# Edit this file to add/remove/tweak labels without touching build_image.sh.
+
+oci_labels+=("org.opencontainers.image.title=xrpld")
+oci_labels+=("org.opencontainers.image.description=XRP Ledger server")
+oci_labels+=("org.opencontainers.image.licenses=ISC")
+oci_labels+=("org.opencontainers.image.source=https://github.com/${repo}")
+oci_labels+=("org.opencontainers.image.url=https://github.com/${repo}")
+oci_labels+=("org.opencontainers.image.revision=${git_hash}")
+oci_labels+=("org.opencontainers.image.version=${ref_name}")
+oci_labels+=("org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)")
+
+# Vendor: only official XRPLF/rippled or XRPLF/xrpld builds get this.
+# Forks are deliberately left without a vendor label so the image does not
+# falsely imply Ripple provenance.
+if [ "$repo_owner" = "XRPLF" ] && { [ "$repo_name" = "rippled" ] || [ "$repo_name" = "xrpld" ]; }; then
+    oci_labels+=("org.opencontainers.image.vendor=Ripple")
+fi
+
+# Custom xrpld-specific labels (org.xrplf.*).
+# When a tag resolves to a different source branch (e.g. TAG=3.1.2 →
+# release-3.1), record the resolved branch alongside the tag in
+# org.opencontainers.image.version. OCI has no standard field that carries
+# both pieces of information, so we add it under XRPLF's own namespace.
+if [ "$ref_type" = "tag" ] && [ "$branch" != "$ref_name" ]; then
+    oci_labels+=("org.xrplf.image.branch=${branch}")
+fi

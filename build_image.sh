@@ -48,7 +48,7 @@ fi
 source ./env
 
 build_args=()
-labels=()
+oci_labels=()
 
 repo_name="${REPO_NAME:-rippled}"
 repo_owner="${REPO_OWNER:-XRPLF}"
@@ -279,19 +279,15 @@ params+=(${DOCKERFILE:+--file $DOCKERFILE})
 # the branch name and commit hash in the xrpld version string.
 if [ -n "${GIT_HASH:-}" ]; then
     build_args+=("commit_id=${git_hash}")
-    labels+=("commit_id=${git_hash}")
 else
     build_args+=("branch=${branch}")
-    # Label uses ref_type as the key and ref_name as the value:
-    # "tag=3.1.2" or "branch=develop". When a tag resolves to a release
-    # branch, both are recorded (e.g., tag=3.1.2 AND branch=release-3.1).
-    labels+=("${ref_type}=${ref_name}")
-    if [ "$ref_type" = "tag" ] && [ "$branch" != "$ref_name" ]; then
-        labels+=("branch=${branch}")
-    fi
-    labels+=("commit_id=${git_hash}")
-    labels+=("repo_url=https://github.com/${repo}.git")
 fi
+
+# Populate oci_labels[] from the template file. Keeping label definitions
+# in a dedicated file makes them easy to audit at a glance — see
+# labels.template for the full set and their meaning.
+source ./labels.template
+
 build_args+=("BUILD_IMAGE=${BUILD_IMAGE}")
 build_args+=("CONAN_REMOTE=${CONAN_REMOTE}")
 build_args+=("repo=${repo}")
@@ -304,10 +300,11 @@ for arg in "${build_args[@]}"; do
 done
 
 # -- Labels --
-# All labels from the labels array are prefixed with "com.ripple." namespace.
-# ADD_LABELS entries are added without a namespace prefix (user controls the key).
-for label in "${labels[@]}"; do
-    params+=(--label="com.ripple.${label}")
+# OCI standard labels (org.opencontainers.image.*) are defined in
+# labels.template. ADD_LABELS entries are passed through as-is so the
+# user controls the key.
+for label in "${oci_labels[@]}"; do
+    params+=(--label="${label}")
 done
 if [ -n "${ADD_LABELS:-}" ]; then
     IFS=',' read -ra extra_labels <<< "$ADD_LABELS"
@@ -355,8 +352,8 @@ for arg in "${build_args[@]}"; do
     echo -e "  ${C_CYAN}${arg%%=*}=${C_RST}${C_WHITE}${arg#*=}${C_RST}"
 done
 echo -e "${C_CYAN}Labels:${C_RST}"
-for label in "${labels[@]}"; do
-    echo -e "  ${C_CYAN}com.ripple.${label%%=*}=${C_RST}${C_WHITE}${label#*=}${C_RST}"
+for label in "${oci_labels[@]}"; do
+    echo -e "  ${C_CYAN}${label%%=*}=${C_RST}${C_WHITE}${label#*=}${C_RST}"
 done
 if [ -n "${ADD_LABELS:-}" ]; then
     for l in "${extra_labels[@]}"; do
