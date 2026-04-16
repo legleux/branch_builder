@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Purpose
 
-This repo builds Docker images of `rippled` (the XRP Ledger server) from various feature branches across different forks. It uses git worktrees to efficiently manage branch checkouts, applies branch-specific build customizations (e.g., patching Conan recipes), and produces a multi-stage Docker image with a statically-linked `rippled` binary.
+This repo builds Docker images of `xrpld` (the XRP Ledger server, formerly `rippled`) from various feature branches across different forks. It uses git worktrees to efficiently manage branch checkouts, applies branch-specific build customizations (e.g., patching Conan recipes), and produces a multi-stage Docker image with a statically-linked binary.
 
 ## Build Command
 
@@ -17,8 +17,11 @@ Key environment variables (set in `env` or exported before running):
 - `REPO_OWNER` — GitHub org/user (default: `XRPLF`)
 - `REPO_NAME` — repo name (default: `rippled`)
 - `BRANCH` — branch to build (default: `develop`)
+- `TAG` — tag to build; validated as a real tag, resolves semver to release branch (mutually exclusive with `BRANCH` and `GIT_HASH`)
 - `IMAGE` — Docker image name (constructed from `REGISTRY/REPO_NAME`)
-- `GIT_HASH` — alternative to `BRANCH`; specify a commit hash (mutually exclusive with `BRANCH`)
+- `GIT_HASH` — alternative to `BRANCH`; specify a commit hash (mutually exclusive with `BRANCH` and `TAG`)
+- `ADD_TAGS` — comma-separated extra Docker tags (plain suffix or full `repo/name:tag`)
+- `ADD_LABELS` — comma-separated extra Docker labels (`key=value`)
 
 ## Architecture
 
@@ -53,9 +56,27 @@ Both `repos/` and `worktrees/` are gitignored. Branch names with slashes are san
 Branch-specific customizations are applied in two ways:
 
 1. **Patches on host** — `build_image.sh` looks for `branches/<owner>/<sanitized-branch>/*.patch` and applies them to the worktree via `git apply` before Docker COPY.
-2. **Per-branch Dockerfiles** — If a git branch named `build/<owner>/<sanitized-branch>` exists in this repo, its `Dockerfile` is used instead of the default.
+2. **Per-branch Dockerfiles** — If `branches/<owner>/<branch>/Dockerfile` exists, it is used instead of the default. Falls back to legacy `build/*` git branches.
 
-When adding support for a new branch, add patch files or Conan recipe overrides to `branches/<owner>/<sanitized-branch>/`.
+When adding support for a new branch, add patch files, Conan recipe overrides, or a custom Dockerfile to `branches/<owner>/<branch>/`.
+
+## Key Variables in build_image.sh
+
+- `branch` — value passed to Dockerfile as build arg. May differ from user input (TAG=3.1.2 → branch=release-3.1).
+- `ref_name` — original user input, used for image tags and labels. Never overwritten by tag resolution.
+- `ref_type` — "tag" or "branch", drives summary output and label keys.
+- `sanitized_branch` vs `sanitized_ref` — both checked when resolving patches and Dockerfiles.
+
+## Gotchas
+
+- Branch names with slashes are sanitized to `--` for directory names (e.g., `ripple/smart-escrow` → `ripple--smart-escrow`), but `release-3.1` has a real dash, NOT a sanitized slash — its directory is `release-3.1` not `release--3.1`.
+- The default Dockerfile uses `xrpld` (the renamed binary). Older releases (3.1.x) use `rippled` — they need a custom Dockerfile in `branches/XRPLF/release-3.1/`.
+- The Dockerfile creates fake `.git` plumbing for GitInfo.cmake. The `$(dirname "${branch}")` in the mkdir handles nested branch names like `release-3.1`.
+- `conan config install src/conan/profiles/default` must be in the Dockerfile or Conan uses the base image's default profile (which may have wrong cppstd).
+
+## TODO
+
+- GitHub Actions workflow for automated image builds (CI counterpart to the local build_image.sh / TUI flow)
 
 ## WAMR Instruction Metering Patch
 
