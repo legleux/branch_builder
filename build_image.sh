@@ -41,6 +41,57 @@ else
 fi
 
 # =============================================================================
+# Help
+# =============================================================================
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    echo -e "${C_WHITE}Usage:${C_RST}    [VAR=value ...] ./build_image.sh [--help]"
+    echo ""
+    echo -e "${C_CYAN}Examples:${C_RST}"
+    echo -e "  ./build_image.sh                                            ${C_DIM}# develop (defaults)${C_RST}"
+    echo -e "  REPO_OWNER=tequdev BRANCH=sponsor ./build_image.sh         ${C_DIM}# fork/branch${C_RST}"
+    echo -e "  GIT_HASH=abc123 ./build_image.sh                           ${C_DIM}# commit hash${C_RST}"
+    echo -e "  TAG=3.1.2 ./build_image.sh                                 ${C_DIM}# release tag${C_RST}"
+    echo -e "  DRY_RUN=true ./build_image.sh                              ${C_DIM}# print command only${C_RST}"
+    echo -e "  LOCAL_REPO=~/dev/rippled BRANCH=my-feature ./build_image.sh"
+    echo -e "  LOCAL_REPO=~/dev/rippled LOCAL_DIRTY=1 ./build_image.sh"
+    echo -e "  ADD_TAGS=latest,staging ./build_image.sh                   ${C_DIM}# extra tag suffixes${C_RST}"
+    echo -e "  ADD_TAGS=other/repo:v1 ./build_image.sh                    ${C_DIM}# full image ref tag${C_RST}"
+    echo -e "  ADD_LABELS=env=staging,team=infra ./build_image.sh         ${C_DIM}# extra OCI labels${C_RST}"
+    echo -e "  PUSH=true ADD_TAGS=latest ADD_LABELS=env=prod ./build_image.sh"
+    echo ""
+    echo -e "${C_CYAN}Source:${C_RST}"
+    echo -e "  ${C_CYAN}REPO_OWNER${C_RST}     ${C_WHITE}XRPLF${C_RST}     ${C_DIM}GitHub org or user${C_RST}"
+    echo -e "  ${C_CYAN}REPO_NAME${C_RST}      ${C_WHITE}rippled${C_RST}   ${C_DIM}Repository name${C_RST}"
+    echo -e "  ${C_CYAN}BRANCH${C_RST}         ${C_WHITE}develop${C_RST}   ${C_DIM}Branch to build (mutually exclusive with TAG, GIT_HASH)${C_RST}"
+    echo -e "  ${C_CYAN}TAG${C_RST}                       ${C_DIM}Tag to build; validated as a real tag${C_RST}"
+    echo -e "  ${C_CYAN}GIT_HASH${C_RST}                  ${C_DIM}Commit hash to build${C_RST}"
+    echo -e "  ${C_CYAN}LOCAL_REPO${C_RST}                ${C_DIM}Path to a local rippled clone${C_RST}"
+    echo -e "  ${C_CYAN}LOCAL_DIRTY${C_RST}               ${C_DIM}With LOCAL_REPO: build current working tree${C_RST}"
+    echo ""
+    echo -e "${C_CYAN}Image:${C_RST}"
+    echo -e "  ${C_CYAN}IMAGE${C_RST}          ${C_WHITE}legleux/rippled${C_RST}  ${C_DIM}Docker image name${C_RST}"
+    echo -e "  ${C_CYAN}REGISTRY${C_RST}       ${C_WHITE}legleux${C_RST}          ${C_DIM}Docker registry${C_RST}"
+    echo -e "  ${C_CYAN}ADD_TAGS${C_RST}                           ${C_DIM}Comma-separated extra tags${C_RST}"
+    echo -e "  ${C_CYAN}ADD_LABELS${C_RST}                         ${C_DIM}Comma-separated extra labels (key=value)${C_RST}"
+    echo ""
+    echo -e "${C_CYAN}Build:${C_RST}"
+    echo -e "  ${C_CYAN}BUILD_IMAGE${C_RST}    ${C_WHITE}ghcr.io/xrplf/ci/ubuntu-jammy:gcc-12${C_RST}  ${C_DIM}Build stage base image${C_RST}"
+    echo -e "  ${C_CYAN}CONAN_REMOTE${C_RST}   ${C_WHITE}conan.ripplex.io${C_RST}               ${C_DIM}Conan package remote${C_RST}"
+    echo -e "  ${C_CYAN}NPROC${C_RST}          ${C_WHITE}16${C_RST}                             ${C_DIM}Parallel build jobs${C_RST}"
+    echo -e "  ${C_CYAN}MEM_LIMIT${C_RST}      ${C_WHITE}50${C_RST}                             ${C_DIM}Memory limit in GB${C_RST}"
+    echo -e "  ${C_CYAN}DOCKER_TARGET${C_RST}  ${C_WHITE}xrpld${C_RST}                          ${C_DIM}Target stage (xrpld or xrpld-slim)${C_RST}"
+    echo -e "  ${C_CYAN}BUILD_TESTS${C_RST}    ${C_WHITE}False${C_RST}                          ${C_DIM}Build unit tests${C_RST}"
+    echo -e "  ${C_CYAN}NO_CACHE${C_RST}                                        ${C_DIM}Set to disable Docker layer cache${C_RST}"
+    echo ""
+    echo -e "${C_CYAN}Run:${C_RST}"
+    echo -e "  ${C_CYAN}DRY_RUN${C_RST}        ${C_WHITE}false${C_RST}  ${C_DIM}Print docker command without executing${C_RST}"
+    echo -e "  ${C_CYAN}PUSH${C_RST}           ${C_WHITE}false${C_RST}  ${C_DIM}Push image to registry${C_RST}"
+    echo ""
+    echo -e "${C_DIM}See README.md for full documentation.${C_RST}"
+    exit 0
+fi
+
+# =============================================================================
 # Load defaults
 # =============================================================================
 # Reads env file which sets: CONAN_REMOTE, BUILD_IMAGE, REGISTRY, REPO_NAME,
@@ -72,6 +123,10 @@ if [ -n "${TAG:-}" ] && [ -n "${BRANCH:-}" ]; then
     echo "Define either TAG or BRANCH, not both!"
     exit 1
 fi
+if [ -n "${LOCAL_DIRTY:-}" ] && [ -z "${LOCAL_REPO:-}" ]; then
+    echo "Error: LOCAL_DIRTY=1 requires LOCAL_REPO to be set."
+    exit 1
+fi
 
 # `branch` is the value passed to setup_worktree.sh and later to the
 # Dockerfile as a build arg. It starts as the TAG or BRANCH value (or
@@ -96,8 +151,8 @@ else
 fi
 
 git_hash="${GIT_HASH:-}"
-mem_limit="${MEM_LIMIT:-50}"
-nproc_val="${NPROC:-24}"
+mem_limit="${MEM_LIMIT:-50s}"
+nproc_val="${NPROC:-16}"
 dry_run="${DRY_RUN:-false}"
 push="${PUSH:-false}"
 
@@ -119,7 +174,21 @@ fi
 # Exports:
 #   WORKTREE_PATH — absolute path to the checked-out worktree
 #   LATEST_HASH   — full commit SHA at the tip of the branch/tag
+if [ -n "${LOCAL_REPO:-}" ]; then
+    if [ -n "${LOCAL_DIRTY:-}" ]; then
+        echo -e "${C_CYAN}Local mode:${C_RST} ${C_WHITE}${LOCAL_REPO}${C_RST} ${C_DIM}(dirty working tree)${C_RST}"
+    else
+        echo -e "${C_CYAN}Local mode:${C_RST} ${C_WHITE}${LOCAL_REPO}${C_RST} ${C_DIM}(committed refs)${C_RST}"
+    fi
+fi
 source ./setup_worktree.sh
+
+# In LOCAL_DIRTY mode, setup_worktree.sh may have derived `branch` from the
+# local checkout's current branch when BRANCH/TAG weren't explicitly set.
+# Sync ref_name so image tags reflect the real branch being built.
+if [ -n "${LOCAL_DIRTY:-}" ] && [ -z "${BRANCH:-}" ] && [ -z "${TAG:-}" ]; then
+    ref_name="$branch"
+fi
 
 git_hash="$LATEST_HASH"
 # source_path is relative to $PWD so Docker COPY can reference it as a
@@ -140,7 +209,7 @@ source_path="${WORKTREE_PATH#$PWD/}"
 #   3. If no matching release branch is found (non-semver tag, or the branch
 #      doesn't follow the release-X.Y convention), `branch` keeps the tag
 #      name as a fallback.
-if [ -n "${TAG:-}" ]; then
+if [ -n "${TAG:-}" ] && [ -z "${LOCAL_REPO:-}" ]; then
     BARE_REPO="$PWD/repos/${repo_name}.git"
     if ! git -C "$BARE_REPO" rev-parse --verify "refs/tags/${TAG}" &>/dev/null; then
         echo "Error: '${TAG}' is not a tag on ${repo_owner}. Did you mean BRANCH=${TAG}?"
@@ -148,6 +217,11 @@ if [ -n "${TAG:-}" ]; then
     fi
     major_minor=$(echo "$TAG" | grep -oP '^\d+\.\d+' || true)
     if [ -n "$major_minor" ]; then
+        # Refresh the candidate release branch — when only the tag was
+        # fetched, refs/remotes/<owner>/release-X.Y can be stale and not
+        # contain the tag's commit, causing --contains below to silently
+        # return empty.
+        git -C "$BARE_REPO" fetch "$repo_owner" "release-${major_minor}" 2>/dev/null || true
         release_branch=$(git -C "$BARE_REPO" branch -r --contains "$LATEST_HASH" 2>/dev/null \
             | sed 's/^ *//' \
             | grep "^${repo_owner}/release-${major_minor}$" \
@@ -157,7 +231,17 @@ if [ -n "${TAG:-}" ]; then
             branch="$release_branch"
         fi
     fi
+elif [ -n "${TAG:-}" ] && [ -n "${LOCAL_REPO:-}" ]; then
+    echo -e "${C_DIM}Local mode: skipping tag→release-branch resolution; using tag as literal ref.${C_RST}"
 fi
+
+# The binary was renamed from `rippled` to `xrpld` after release-3.1.
+# release-3.0 and release-3.1 (and their tags, e.g. 3.1.3) are the only
+# branches that still produce a `rippled` binary; everything else is `xrpld`.
+binary_name="xrpld"
+case "$branch" in
+    release-3.0|release-3.1) binary_name="rippled" ;;
+esac
 
 # =============================================================================
 # Apply branch-specific patches
