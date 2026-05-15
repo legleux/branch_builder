@@ -6,16 +6,21 @@ SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
-# --- Setup: create a source repo with a branch and an annotated tag ---
+# --- Setup: create a source repo with a branch, an annotated tag, and a tracked file ---
 git init "$TMPDIR/source" -q
 pushd "$TMPDIR/source" >/dev/null
-git commit --allow-empty -m "initial" -q
+git config user.email "test@example.com"
+git config user.name "Test"
+echo "original" > tracked.txt
+git add tracked.txt
+git commit -m "initial" -q
 COMMIT_HASH=$(git rev-parse HEAD)
 git tag -a v1.0.0 -m "release v1.0.0"
 TAG_OBJ_HASH=$(git rev-parse refs/tags/v1.0.0)
 git checkout -b feature/foo -q
 git commit --allow-empty -m "feature" -q
 BRANCH_HASH=$(git rev-parse HEAD)
+git checkout master 2>/dev/null || git checkout main 2>/dev/null || git checkout -b main -q
 popd >/dev/null
 
 # Sanity: annotated tag object != commit
@@ -76,6 +81,105 @@ run_test "annotated tag resolves to commit hash" "$COMMIT_HASH" "v1.0.0"
 
 # --- Test: branch resolves to correct commit hash ---
 run_test "branch resolves to commit hash" "$BRANCH_HASH" "feature/foo"
+
+# =============================================================================
+# LOCAL_REPO / LOCAL_DIRTY mode
+# =============================================================================
+
+# Helper: run setup_worktree.sh in local mode. Echoes "<LATEST_HASH>|<WORKTREE_PATH>|<tracked_contents>".
+run_local_setup() {
+    local local_repo="$1" local_dirty="${2:-}" branch="${3:-}" branch_env="${4:-}" tag_env="${5:-}"
+    local project_root="$TMPDIR/project_local_$(date +%N)"
+    mkdir -p "$project_root/repos"
+    cp "$SCRIPT_DIR/setup_worktree.sh" "$project_root/"
+
+    bash -c "
+        set -euo pipefail
+        cd '$project_root'
+        export LOCAL_REPO='$local_repo'
+        export LOCAL_DIRTY='$local_dirty'
+        export BRANCH='$branch_env'
+        export TAG='$tag_env'
+        repo_name=myrepo
+        repo_owner=testowner
+        branch='$branch'
+        git_hash=''
+        source ./setup_worktree.sh >/dev/null 2>&1
+        tracked=''
+        [ -f \"\$WORKTREE_PATH/tracked.txt\" ] && tracked=\$(cat \"\$WORKTREE_PATH/tracked.txt\")
+        echo \"\$LATEST_HASH|\$WORKTREE_PATH|\$tracked\"
+    "
+}
+
+# --- Test: LOCAL_REPO + committed branch ---
+out=$(run_local_setup "$TMPDIR/source" "" "feature/foo" "feature/foo" "") || out="ERROR"
+IFS='|' read -r got_hash got_path got_tracked <<< "$out"
+if [ "$got_hash" = "$BRANCH_HASH" ] && [[ "$got_path" == *"/worktrees/testowner-local/feature--foo" ]]; then
+    echo "PASS: LOCAL_REPO committed branch uses -local namespace and correct hash"
+    pass=$((pass + 1))
+else
+    echo "FAIL: LOCAL_REPO committed branch"
+    echo "  expected hash $BRANCH_HASH, path .../worktrees/testowner-local/feature--foo"
+    echo "  got: $out"
+    fail=$((fail + 1))
+fi
+
+# --- Test: LOCAL_DIRTY=1 on clean working tree falls back to HEAD ---
+out=$(run_local_setup "$TMPDIR/source" "1" "" "" "") || out="ERROR"
+IFS='|' read -r got_hash got_path got_tracked <<< "$out"
+# After checkout back to master/main, HEAD is COMMIT_HASH (master branch)
+if [ "$got_hash" = "$COMMIT_HASH" ] && [ "$got_tracked" = "original" ]; then
+    echo "PASS: LOCAL_DIRTY=1 on clean tree falls back to HEAD"
+    pass=$((pass + 1))
+else
+    echo "FAIL: LOCAL_DIRTY=1 clean fallback"
+    echo "  expected hash $COMMIT_HASH, tracked 'original'"
+    echo "  got: $out"
+    fail=$((fail + 1))
+fi
+
+# --- Test: LOCAL_DIRTY=1 with unstaged change captures working tree ---
+echo "modified content" > "$TMPDIR/source/tracked.txt"
+out=$(run_local_setup "$TMPDIR/source" "1" "" "" "") || out="ERROR"
+IFS='|' read -r got_hash got_path got_tracked <<< "$out"
+if [ "$got_hash" != "$COMMIT_HASH" ] && [ "$got_hash" != "$BRANCH_HASH" ] && [ "$got_tracked" = "modified content" ]; then
+    echo "PASS: LOCAL_DIRTY=1 with unstaged change captures the modification"
+    pass=$((pass + 1))
+else
+    echo "FAIL: LOCAL_DIRTY=1 with unstaged change"
+    echo "  expected: new hash (not \$COMMIT_HASH / \$BRANCH_HASH) with tracked='modified content'"
+    echo "  got: $out"
+    fail=$((fail + 1))
+fi
+# Restore clean state for subsequent runs
+git -C "$TMPDIR/source" checkout -- tracked.txt 2>/dev/null || true
+
+# --- Test: LOCAL_DIRTY=1 without LOCAL_REPO errors out ---
+project_root="$TMPDIR/project_dirty_only"
+mkdir -p "$project_root/repos"
+cp "$SCRIPT_DIR/setup_worktree.sh" "$project_root/"
+set +e
+out=$(bash -c "
+    set -euo pipefail
+    cd '$project_root'
+    unset LOCAL_REPO
+    export LOCAL_DIRTY=1
+    repo_name=myrepo
+    repo_owner=testowner
+    branch='develop'
+    git_hash=''
+    source ./setup_worktree.sh 2>&1
+" )
+rc=$?
+set -e
+if [ "$rc" -ne 0 ] && echo "$out" | grep -q "LOCAL_DIRTY"; then
+    echo "PASS: LOCAL_DIRTY=1 without LOCAL_REPO exits with error"
+    pass=$((pass + 1))
+else
+    echo "FAIL: LOCAL_DIRTY=1 without LOCAL_REPO should error"
+    echo "  rc=$rc, output: $out"
+    fail=$((fail + 1))
+fi
 
 echo ""
 echo "Results: $pass passed, $fail failed"

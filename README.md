@@ -30,11 +30,19 @@ DRY_RUN=true ./build_image.sh
 # Build a tagged release
 TAG=3.1.2 ./build_image.sh
 
+# Build an unpushed local branch
+LOCAL_REPO=~/dev/rippled BRANCH=my-feature ./build_image.sh
+
+# Build the current dirty working tree of a local checkout
+LOCAL_REPO=~/dev/rippled LOCAL_DIRTY=1 ./build_image.sh
+
 # Build and push to registry
 PUSH=true ./build_image.sh
 ```
 
 > **Tags vs branches:** Use `TAG` for tags and `BRANCH` for branches — they're mutually exclusive. `TAG` validates that the value is actually a tag on the remote, so `TAG=develop` will error out. `BRANCH` also accepts tag names (it tries as a branch first, falls back to `refs/tags/`), but `TAG` is preferred when you know you want a release tag.
+
+> **Local builds:** When `LOCAL_REPO` is set, the fetch source is the local path instead of GitHub, and worktrees are namespaced under `worktrees/<owner>-local/` so they don't clobber upstream checkouts of the same branch name. `LOCAL_DIRTY=1` captures tracked staged + unstaged changes via `git stash create`; untracked files are not included (use `git add -N <file>` first if you need them). Tag → release-branch resolution is skipped in local mode.
 
 ### TUI
 
@@ -51,12 +59,12 @@ Set these in the `env` file or export before running `build_image.sh`:
 | Variable | Default | Description |
 |---|---|---|
 | `REPO_OWNER` | `XRPLF` | GitHub org or user |
-| `REPO_NAME` | `rippled` | Repository name |
+| `SOURCE_REPO` | `rippled` | Source GitHub repository name |
 | `BRANCH` | `develop` | Branch or tag to build (mutually exclusive with `GIT_HASH` and `TAG`) |
 | `TAG` | | Tag to build; validated as a real tag (mutually exclusive with `BRANCH` and `GIT_HASH`) |
 | `GIT_HASH` | | Commit hash to build (mutually exclusive with `BRANCH` and `TAG`) |
-| `IMAGE` | `${REGISTRY}/${REPO_NAME}` | Docker image name |
-| `REGISTRY` | `legleux` | Docker registry |
+| `REGISTRY` | `rippleci` | Docker registry/namespace |
+| `IMAGE` | `xrpld` | Docker image name (full ref is `${REGISTRY}/${IMAGE}`; set `IMAGE=rippled` for pre-3.2 release builds) |
 | `BUILD_IMAGE` | `ghcr.io/xrplf/ci/ubuntu-jammy:gcc-12` | Base image for the build stage |
 | `CONAN_REMOTE` | `conan.ripplex.io` | Conan package remote |
 | `NPROC` | `24` | Parallel build jobs |
@@ -65,9 +73,11 @@ Set these in the `env` file or export before running `build_image.sh`:
 | `PUSH` | `false` | Push image to registry (`false` loads locally) |
 | `DOCKER_TARGET` | `xrpld` | Dockerfile target stage (`xrpld` or `xrpld-slim`) |
 | `BUILD_TESTS` | `False` | Build xrpld unit tests |
-| `ADD_TAGS` | | Comma-separated extra tags. Plain names are suffixes (e.g., `my_tag` becomes `$IMAGE:my_tag`). Values with `/` are used as-is (e.g., `other/repo:v1`). |
+| `ADD_TAGS` | | Comma-separated extra tags. Plain names are suffixes (e.g., `my_tag` becomes `${REGISTRY}/${IMAGE}:my_tag`). Values with `/` are used as-is (e.g., `other/repo:v1`). |
 | `ADD_LABELS` | | Comma-separated extra Docker labels (e.g., `env=staging,team=infra`) |
 | `NO_CACHE` | | Set to any value to disable Docker layer cache |
+| `LOCAL_REPO` | | Path to a local rippled clone. Enables local mode (fetch source is the path, not GitHub). |
+| `LOCAL_DIRTY` | | When set with `LOCAL_REPO`, builds the current working tree via `git stash create` instead of a committed ref. |
 
 ## How It Works
 
@@ -81,6 +91,8 @@ Set these in the `env` file or export before running `build_image.sh`:
 4. Skips checkout if the worktree is already at the latest commit
 
 Branch names with slashes are sanitized to double-dashes in directory names (e.g., `ripple/smart-escrow` becomes `ripple--smart-escrow`).
+
+When `LOCAL_REPO` is set, the fetch source is the local path instead of `github.com/<owner>/<repo>.git`, and a separate remote (`local-<owner>`) is used. Local-mode worktrees land under `worktrees/<owner>-local/` to avoid clobbering upstream checkouts. With `LOCAL_DIRTY=1`, `git stash create` produces a synthetic commit from the working tree; the commit is pinned in `refs/local-builds/<owner>/dirty` so it survives between builds.
 
 ### 2. Patch Application
 
@@ -117,6 +129,8 @@ Push all tags?
 ```
 
 This only appears in interactive terminals (not CI or piped contexts). To push automatically during the build instead, use `PUSH=true`. In dry-run mode, the push commands are printed but not executed.
+
+> **Pushing local builds:** images built with `LOCAL_REPO`/`LOCAL_DIRTY` contain unvetted source. The commit-hash tag distinguishes them from upstream builds, but the ref-name tag does not — prefer `PUSH=false` for local iteration and push deliberately only when needed.
 
 ## TUI Features
 
@@ -223,7 +237,7 @@ When patches aren't enough — the branch needs different Conan options, an extr
 
 ### Testing Before a Full Build
 
-Full builds take a long time. To iterate on patches or Dockerfile changes, use a throwaway container with the worktree mounted:
+Full builds take a long time. To iterate on patches or Dockerfile changes, use a throwaway container with the worktree mounted. If you want the full image built from local (unpushed or dirty) source instead of just a build-stage shell, use `LOCAL_REPO=…` — see [Quick Start](#quick-start).
 
 ```bash
 # First, set up the worktree without building
@@ -295,6 +309,9 @@ rm -rf repos/ worktrees/
 | Conan install fails with missing recipe | Branch needs a custom Conan recipe not on the remote | Add the recipe to `branches/<owner>/<sanitized-branch>/` and wire it into a per-branch Dockerfile |
 | Build OOM-killed | `MEM_LIMIT` too low for the link step | Increase `MEM_LIMIT` (default 50 GB) or reduce `NPROC` |
 | Docker cache stale after switching branches | Docker layer cache from a previous branch's source | Rebuild with `NO_CACHE=1 ./build_image.sh` |
+| `LOCAL_REPO does not contain a git repo` | Path isn't a checkout or the directory is wrong | Verify the path points at a rippled working tree or its `.git` dir |
+| `Working tree clean, building from HEAD` with `LOCAL_DIRTY=1` | No tracked edits to capture | Expected — the stash-create SHA was empty, so HEAD is used |
+| Untracked file missing from local-dirty build | `git stash create` only captures tracked content | Run `git add -N <file>` in `LOCAL_REPO` to promote it to tracked, then rebuild |
 
 ## Directory Layout
 

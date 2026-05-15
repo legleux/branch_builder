@@ -14,10 +14,10 @@
 #   8. Print a build summary and either execute or dry-run the build
 #
 # Inputs (environment variables — see README.md for full list):
-#   REPO_OWNER, REPO_NAME  — GitHub fork/repo (default: XRPLF/rippled)
+#   REPO_OWNER, SOURCE_REPO — GitHub fork/repo (default: XRPLF/rippled)
 #   BRANCH | TAG | GIT_HASH — mutually exclusive ref to build
 #   ADD_TAGS                — comma-separated extra Docker tag suffixes
-#                             (plain names → $IMAGE:<name>, paths with / → used as-is)
+#                             (plain names → $FULL_IMAGE_NAME:<name>, paths with / → used as-is)
 #   ADD_LABELS              — comma-separated extra Docker labels (key=value)
 #   DRY_RUN, PUSH, MEM_LIMIT, NPROC, etc.
 #
@@ -61,7 +61,7 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     echo ""
     echo -e "${C_CYAN}Source:${C_RST}"
     echo -e "  ${C_CYAN}REPO_OWNER${C_RST}     ${C_WHITE}XRPLF${C_RST}     ${C_DIM}GitHub org or user${C_RST}"
-    echo -e "  ${C_CYAN}REPO_NAME${C_RST}      ${C_WHITE}rippled${C_RST}   ${C_DIM}Repository name${C_RST}"
+    echo -e "  ${C_CYAN}SOURCE_REPO${C_RST}    ${C_WHITE}rippled${C_RST}   ${C_DIM}Source GitHub repository name${C_RST}"
     echo -e "  ${C_CYAN}BRANCH${C_RST}         ${C_WHITE}develop${C_RST}   ${C_DIM}Branch to build (mutually exclusive with TAG, GIT_HASH)${C_RST}"
     echo -e "  ${C_CYAN}TAG${C_RST}                       ${C_DIM}Tag to build; validated as a real tag${C_RST}"
     echo -e "  ${C_CYAN}GIT_HASH${C_RST}                  ${C_DIM}Commit hash to build${C_RST}"
@@ -69,8 +69,8 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     echo -e "  ${C_CYAN}LOCAL_DIRTY${C_RST}               ${C_DIM}With LOCAL_REPO: build current working tree${C_RST}"
     echo ""
     echo -e "${C_CYAN}Image:${C_RST}"
-    echo -e "  ${C_CYAN}IMAGE${C_RST}          ${C_DIM}\${REGISTRY}/\${REPO_NAME}${C_RST}  ${C_DIM}Docker image name (set in env)${C_RST}"
-    echo -e "  ${C_CYAN}REGISTRY${C_RST}                              ${C_DIM}Docker registry (set in env)${C_RST}"
+    echo -e "  ${C_CYAN}REGISTRY${C_RST}       ${C_WHITE}rippleci${C_RST}  ${C_DIM}Docker registry/namespace${C_RST}"
+    echo -e "  ${C_CYAN}IMAGE${C_RST}          ${C_WHITE}xrpld${C_RST}     ${C_DIM}Docker image name (full ref is \${REGISTRY}/\${IMAGE})${C_RST}"
     echo -e "  ${C_CYAN}ADD_TAGS${C_RST}                           ${C_DIM}Comma-separated extra tags${C_RST}"
     echo -e "  ${C_CYAN}ADD_LABELS${C_RST}                         ${C_DIM}Comma-separated extra labels (key=value)${C_RST}"
     echo ""
@@ -94,16 +94,19 @@ fi
 # =============================================================================
 # Load defaults
 # =============================================================================
-# Reads env file which sets: CONAN_REMOTE, BUILD_IMAGE, REGISTRY, REPO_NAME,
+# Reads env file which sets: CONAN_REMOTE, BUILD_IMAGE, REGISTRY, SOURCE_REPO,
 # IMAGE, BUILD_TYPE. Any of these can be overridden by exporting before running.
 source ./env
 
 build_args=()
 oci_labels=()
 
-repo_name="${REPO_NAME:-rippled}"
+repo_name="${SOURCE_REPO:-rippled}"
 repo_owner="${REPO_OWNER:-XRPLF}"
 repo="${repo_owner}/${repo_name}"
+
+# Full Docker image ref (registry/name), used as the prefix for all tag variants.
+FULL_IMAGE_NAME="${REGISTRY}/${IMAGE}"
 
 # =============================================================================
 # Validate ref inputs
@@ -321,7 +324,7 @@ fi
 # Docker tags allow [a-zA-Z0-9_.-] — only slashes need replacing.
 tag=$(echo "$tag" | sed 's|/|--|g')
 
-image="${IMAGE}:${tag}"
+image="${FULL_IMAGE_NAME}:${tag}"
 
 # =============================================================================
 # Assemble docker build params
@@ -337,9 +340,20 @@ params+=(--tag ${image})
 # all_tags collects every resolved tag name so we can push them after the build.
 all_tags=("${image}")
 
+# -- SHA tags --
+# Always tag with the full and short commit SHAs so any build is addressable
+# by its exact source revision, regardless of branch/tag naming.
+short_sha="${git_hash:0:7}"
+for sha_tag in "${FULL_IMAGE_NAME}:${git_hash}" "${FULL_IMAGE_NAME}:${short_sha}"; do
+    if [[ " ${all_tags[*]} " != *" ${sha_tag} "* ]]; then
+        params+=(--tag "${sha_tag}")
+        all_tags+=("${sha_tag}")
+    fi
+done
+
 # -- Additional tags (ADD_TAGS) --
 # Comma-separated list. Each entry is either:
-#   - A plain suffix (no /) → expanded to ${IMAGE}:<suffix>
+#   - A plain suffix (no /) → expanded to ${FULL_IMAGE_NAME}:<suffix>
 #   - A full image reference (contains /) → used as-is
 if [ -n "${ADD_TAGS:-}" ]; then
     IFS=',' read -ra extra_tags <<< "$ADD_TAGS"
@@ -347,7 +361,7 @@ if [ -n "${ADD_TAGS:-}" ]; then
         if [[ "$t" == */* ]]; then
             resolved="$t"
         else
-            resolved="${IMAGE}:${t}"
+            resolved="${FULL_IMAGE_NAME}:${t}"
         fi
         params+=(--tag "${resolved}")
         all_tags+=("${resolved}")

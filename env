@@ -9,9 +9,14 @@
 ## Account Permission
 # REPO_OWNER="yinyiqian1"
 # BRANCH="account_permission_new"
+
+## Local checkout (unpushed branch or dirty working tree)
+# LOCAL_REPO="${HOME}/dev/rippled"
+# BRANCH="my-feature"       # build a committed branch in LOCAL_REPO
+# LOCAL_DIRTY=1             # or: build the current working tree (overrides BRANCH)
 CONAN_REMOTE="conan.ripplex.io"
 BUILD_IMAGE="ghcr.io/xrplf/ci/ubuntu-jammy:gcc-12"
-REGISTRY="legleux"
-REPO_NAME="rippled"
-IMAGE="${REGISTRY}/${REPO_NAME}"
+REGISTRY="rippleci"
+SOURCE_REPO="rippled"
+IMAGE="xrpld"
 BUILD_TYPE="Release"

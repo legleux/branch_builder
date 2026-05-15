@@ -10,6 +10,7 @@
 #   ref_name     — the original user-supplied TAG or BRANCH
 #   ref_type     — "tag" or "branch"
 #   git_hash     — full commit SHA being built
+#   binary_name  — "xrpld" by default; "rippled" for pre-rename releases
 #
 # This file populates oci_labels[] which build_image.sh passes to docker
 # build. All keys use the OCI standard "org.opencontainers.image.*"
@@ -18,7 +19,7 @@
 #
 # Edit this file to add/remove/tweak labels without touching build_image.sh.
 
-oci_labels+=("org.opencontainers.image.title=xrpld")
+oci_labels+=("org.opencontainers.image.title=${binary_name}")
 oci_labels+=("org.opencontainers.image.description=XRP Ledger server")
 oci_labels+=("org.opencontainers.image.licenses=ISC")
 oci_labels+=("org.opencontainers.image.source=https://github.com/${repo}")

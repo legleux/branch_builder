@@ -15,13 +15,16 @@ This repo builds Docker images of `xrpld` (the XRP Ledger server, formerly `ripp
 
 Key environment variables (set in `env` or exported before running):
 - `REPO_OWNER` — GitHub org/user (default: `XRPLF`)
-- `REPO_NAME` — repo name (default: `rippled`)
+- `SOURCE_REPO` — source GitHub repo name (default: `rippled`)
 - `BRANCH` — branch to build (default: `develop`)
 - `TAG` — tag to build; validated as a real tag, resolves semver to release branch (mutually exclusive with `BRANCH` and `GIT_HASH`)
-- `IMAGE` — Docker image name (constructed from `REGISTRY/REPO_NAME`)
+- `REGISTRY` — Docker registry/namespace (default: `rippleci`)
+- `IMAGE` — Docker image name (default: `xrpld`; set to `rippled` for pre-3.2 release builds). Full ref is `${REGISTRY}/${IMAGE}`.
 - `GIT_HASH` — alternative to `BRANCH`; specify a commit hash (mutually exclusive with `BRANCH` and `TAG`)
 - `ADD_TAGS` — comma-separated extra Docker tags (plain suffix or full `repo/name:tag`)
 - `ADD_LABELS` — comma-separated extra Docker labels (`key=value`)
+- `LOCAL_REPO` — path to a local rippled clone; fetch from there instead of GitHub. Worktrees land under `worktrees/<owner>-local/` so they don't collide with upstream checkouts.
+- `LOCAL_DIRTY` — with `LOCAL_REPO`, build the current working tree via `git stash create` (tracked staged + unstaged changes). Untracked files are not included — `git add -N <file>` first if needed. Tag→release-branch resolution is skipped in local mode. CLI-only for now (TUI integration is future work).
 
 ## Architecture
 
@@ -74,6 +77,7 @@ When adding support for a new branch, add patch files, Conan recipe overrides, o
 - The default Dockerfile uses `xrpld` (the renamed binary). Older releases (3.1.x) use `rippled` — they need a custom Dockerfile in `branches/XRPLF/release-3.1/`.
 - The Dockerfile creates fake `.git` plumbing for GitInfo.cmake. The `$(dirname "${branch}")` in the mkdir handles nested branch names like `release-3.1`.
 - `conan config install src/conan/profiles/default` must be in the Dockerfile or Conan uses the base image's default profile (which may have wrong cppstd).
+- `LOCAL_DIRTY=1` uses `git stash create`, which does not capture untracked files. Promote them with `git add -N <file>` before building. `LOCAL_REPO` is not validated against `SOURCE_REPO` — pointing it at a repo with a different name silently "works" (you get an image built from whatever the wrong repo contains).
 
 ## TODO
 
